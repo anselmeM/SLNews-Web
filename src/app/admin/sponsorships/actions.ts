@@ -10,6 +10,7 @@ import {
   keyMatches,
 } from "@/lib/admin/sponsorship-auth";
 import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
+import { sendNativePush } from "@/lib/push/fcm";
 import { db } from "@/lib/db";
 
 export async function login(formData: FormData): Promise<void> {
@@ -94,4 +95,23 @@ export async function seedDemoCampaign(): Promise<void> {
     },
   });
   redirect("/admin/sponsorships?created=1");
+}
+
+/** Sends a test notification through the production FCM path. */
+export async function sendTestPush(): Promise<void> {
+  await requireAdmin();
+  let result = { sent: 0, failed: 0 };
+  try {
+    result = await sendNativePush({
+      title: "SLNews test notification",
+      body: "If you can read this, push notifications are working.",
+      url: "/",
+      category: "test",
+    });
+  } catch {
+    // Report zeroes rather than leaking internals to the console URL.
+  }
+  redirect(
+    `/admin/sponsorships?pushSent=${result.sent}&pushFailed=${result.failed}`
+  );
 }

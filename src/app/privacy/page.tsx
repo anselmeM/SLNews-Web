@@ -163,6 +163,12 @@ export default function PrivacyPolicyPage() {
               the apps.
             </li>
             <li>
+              <strong>Firebase Cloud Messaging (Google):</strong> delivery of
+              push notifications. The app registers a device token with our
+              server, which passes it to Google to deliver the alert; it is not
+              used for analytics or advertising.
+            </li>
+            <li>
               <strong>Sentry:</strong> crash and error diagnostics for the apps
               and this website, configured without IP storage and without
               account identifiers.

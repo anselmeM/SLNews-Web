@@ -3,6 +3,7 @@ import {
   extendCampaign,
   logout,
   seedDemoCampaign,
+  sendTestPush,
   stopCampaign,
 } from "./actions";
 import { isAdminRequest } from "@/lib/admin/sponsorship-auth";
@@ -26,10 +27,10 @@ export default async function SponsorshipsAdminPage({
 }) {
   if (!(await isAdminRequest())) redirect("/admin/sponsorships/login");
   const flags = await searchParams;
-  const rows = await db.sponsorship.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  });
+  const [rows, deviceCount] = await Promise.all([
+    db.sponsorship.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+    db.mobileDevice.count(),
+  ]);
   const totals = rows.reduce(
     (acc, row) => {
       acc.impressions += row.impressions;
@@ -44,6 +45,11 @@ export default async function SponsorshipsAdminPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold">Sponsorships</h1>
         <div className="flex items-center gap-2">
+          <form action={sendTestPush}>
+            <button className="rounded-lg border border-outline-variant/40 px-3 py-1.5">
+              Send test push
+            </button>
+          </form>
           <form action={seedDemoCampaign}>
             <button className="rounded-lg border border-outline-variant/40 px-3 py-1.5">
               Seed demo campaign
@@ -81,7 +87,8 @@ export default async function SponsorshipsAdminPage({
 
       <p className="text-xs text-on-surface-variant">
         Total: {totals.impressions} impressions · {totals.taps} taps · CTR{" "}
-        {ctr(totals.impressions, totals.taps)}
+        {ctr(totals.impressions, totals.taps)} · {deviceCount} device
+        {deviceCount === 1 ? "" : "s"} registered for push
       </p>
 
       {rows.length === 0 ? (
