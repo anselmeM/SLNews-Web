@@ -8,6 +8,36 @@ import { logger } from "@/lib/logger";
 
 const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/profile(.*)"]);
 
+const ADMIN_COOKIE = "slnews_admin";
+const ADMIN_LOGIN_PATH = "/admin/sponsorships/login";
+
+/** Constant-time-ish hex comparison for the derived admin token. */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Edge-compatible admin gate for every /admin page except the login form.
+ * The cookie stores sha256("slnews-admin:<key>"), never the key itself.
+ */
+async function hasAdminCookie(req: NextRequest): Promise<boolean> {
+  const key = process.env.SPONSORSHIP_ADMIN_KEY?.trim();
+  if (!key) return false;
+  const token = req.cookies.get(ADMIN_COOKIE)?.value ?? "";
+  if (!token) return false;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`slnews-admin:${key}`)
+  );
+  const expected = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return safeEqual(expected, token);
+}
+
 const hasClerkKeys = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
 );
@@ -32,6 +62,13 @@ export default async function middleware(
   req: NextRequest,
   evt: NextFetchEvent
 ) {
+  const { pathname } = req.nextUrl;
+  if (pathname.startsWith("/admin") && pathname !== ADMIN_LOGIN_PATH) {
+    if (!(await hasAdminCookie(req))) {
+      return NextResponse.redirect(new URL(ADMIN_LOGIN_PATH, req.url), 307);
+    }
+  }
+
   if (clerkHandler) {
     try {
       return await clerkHandler(req, evt);
