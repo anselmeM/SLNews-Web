@@ -325,3 +325,42 @@ export interface NativePushDb {
     deleteMany: (args: unknown) => Promise<{ count: number }>;
   };
 }
+
+/**
+ * Sends one notification to an FCM topic (client-subscribed segment).
+ * Topic names are validated by the caller; delivery is best-effort.
+ */
+export async function sendTopicPush(
+  topic: string,
+  message: NativeMessage
+): Promise<{ ok: boolean; topic: string; skipped?: string }> {
+  const config = parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT);
+  if (!config) return { ok: false, topic, skipped: "not-configured" };
+  if (!/^[A-Za-z0-9-_.~%]{1,200}$/.test(topic)) {
+    return { ok: false, topic, skipped: "invalid-topic" };
+  }
+  let access: string;
+  try {
+    access = await accessToken(config);
+  } catch {
+    return { ok: false, topic, skipped: "token-exchange-failed" };
+  }
+  const body = messageBody(config, "", message) as {
+    message: Record<string, unknown>;
+  };
+  delete body.message.token;
+  body.message.topic = topic;
+  const response = await fetch(
+    `https://fcm.googleapis.com/v1/projects/${config.projectId}/messages:send`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${access}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    }
+  );
+  return { ok: response.ok, topic };
+}
