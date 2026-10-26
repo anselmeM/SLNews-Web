@@ -80,10 +80,10 @@ const nextConfig: NextConfig = {
     ];
   },
   images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "**" },
-      { protocol: "http", hostname: "**" },
-    ],
+    // No remote next/image sources are used. A wildcard allowlist would let
+    // /_next/image fetch arbitrary hosts (SSRF/abuse), so it stays empty until
+    // a specific CDN needs adding.
+    remotePatterns: [],
   },
   async headers() {
     return [
@@ -92,7 +92,14 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "X-XSS-Protection", value: "1; mode=block" },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=()",
+          },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Content-Security-Policy",

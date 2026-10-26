@@ -17,12 +17,10 @@ import { syncScraperVideos } from "@/lib/video-sync";
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const querySecret = searchParams.get("secret");
+  // Bearer only: a ?secret= would leak into logs, referrers and caches.
   const authHeader = request.headers.get("authorization");
-
   const isValid =
-    querySecret === process.env.CRON_SECRET ||
+    Boolean(process.env.CRON_SECRET) &&
     authHeader === `Bearer ${process.env.CRON_SECRET}`;
 
   if (!isValid) {

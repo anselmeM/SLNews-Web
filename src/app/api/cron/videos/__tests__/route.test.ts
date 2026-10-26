@@ -21,9 +21,9 @@ const fetchVideos = vi.mocked(fetchScraperVideos);
 const triggerSync = vi.mocked(triggerScraperVideoSync);
 
 function get(query = "", secret?: string): Request {
-  const url = new URL(`http://localhost/api/cron/videos${query}`);
-  if (secret) url.searchParams.set("secret", secret);
-  return new Request(url);
+  return new Request(`http://localhost/api/cron/videos${query}`, {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  });
 }
 
 const VIDEO = {

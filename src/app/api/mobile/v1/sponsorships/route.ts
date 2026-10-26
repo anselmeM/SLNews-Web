@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
+import { adminKeyMatches } from "@/lib/admin-key";
 
 const WHERE = "api/mobile/v1/sponsorships";
 const MAX_ITEMS = 6;
@@ -96,7 +97,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!expected) {
     return noStore({ error: "Sponsorship admin is not configured." }, 503);
   }
-  if (request.headers.get("x-admin-key")?.trim() !== expected) {
+  if (!adminKeyMatches(request.headers.get("x-admin-key"), expected)) {
     return noStore({ error: "Unauthorized" }, 401);
   }
 
