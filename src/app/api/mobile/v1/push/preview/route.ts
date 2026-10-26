@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendTopicPush } from "@/lib/push/fcm";
+import { adminKeyMatches } from "@/lib/admin-key";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -13,7 +14,10 @@ function topicFor(segment: string): string {
   return `slnews_${cleaned.replace(/[^A-Za-z0-9_.~%-]/g, "_")}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!adminKeyMatches(request.headers.get("x-admin-key"), adminKey())) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   return NextResponse.json({
     segments: [
       "breaking",
@@ -28,7 +32,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const expected = adminKey();
-  if (!expected || request.headers.get("x-admin-key") !== expected) {
+  if (!adminKeyMatches(request.headers.get("x-admin-key"), expected)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   let payload: {

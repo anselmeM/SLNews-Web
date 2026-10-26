@@ -1,6 +1,6 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   ADMIN_COOKIE,
@@ -12,8 +12,21 @@ import {
 import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
 import { sendNativePush } from "@/lib/push/fcm";
 import { db } from "@/lib/db";
+import { checkDbRateLimit } from "@/lib/rate-limiter";
 
 export async function login(formData: FormData): Promise<void> {
+  // Slow down key guessing: ten attempts per IP per ten minutes.
+  const headerBag = await headers();
+  const ip =
+    headerBag.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    headerBag.get("x-real-ip") ??
+    "unknown";
+  const limit = await checkDbRateLimit(`admin-login:${ip}`, {
+    maxRequests: 10,
+    windowMs: 10 * 60_000,
+  });
+  if (!limit.allowed) redirect("/admin/sponsorships/login?error=rate");
+
   const submitted = String(formData.get("key") ?? "");
   if (!isAdminConfigured() || !keyMatches(submitted)) {
     redirect("/admin/sponsorships/login?error=1");

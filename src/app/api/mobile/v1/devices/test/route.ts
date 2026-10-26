@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { reportError } from "@/lib/error-reporting";
 import { sendNativePush } from "@/lib/push/fcm";
+import { adminKeyMatches } from "@/lib/admin-key";
 
 function json(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
@@ -21,7 +22,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const expected = process.env.SPONSORSHIP_ADMIN_KEY?.trim();
   if (!expected)
     return json({ error: "Sponsorship admin is not configured." }, 503);
-  if (request.headers.get("x-admin-key")?.trim() !== expected) {
+  if (!adminKeyMatches(request.headers.get("x-admin-key"), expected)) {
     return json({ error: "Unauthorized" }, 401);
   }
 

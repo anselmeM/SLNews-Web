@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 
 export async function GET(request: Request) {
+  const limit = checkRateLimit(`share-card:${getClientIp(request)}`, {
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "rate limited" },
+      { status: 429, headers: { "retry-after": String(limit.retryAfter) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const title =
     searchParams.get("title") || "SLNews - Sierra Leone News & Live Updates";
