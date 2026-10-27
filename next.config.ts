@@ -42,6 +42,11 @@ const ALLOW_EVAL =
 const CSP_REPORT_URI = "/api/csp-report";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Campaign creatives are uploaded through a server action; keep the limit
+    // under Vercel's 4.5 MB function-request ceiling.
+    serverActions: { bodySizeLimit: "4mb" },
+  },
   async redirects() {
     return [
       { source: "/local", destination: "/local-news", permanent: true },

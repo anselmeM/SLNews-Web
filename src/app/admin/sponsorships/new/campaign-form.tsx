@@ -72,6 +72,23 @@ export function CampaignForm() {
           </div>
         ))}
 
+        <div>
+          <label className="block text-xs font-semibold" htmlFor="imageFile">
+            Creative upload (optional, max 4 MB)
+          </label>
+          <input
+            id="imageFile"
+            name="imageFile"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/avif"
+            className="w-full rounded-lg border px-3 py-2 text-xs"
+          />
+          <p className="mt-1 text-[11px] text-gray-500">
+            Needs a connected Vercel Blob store. You can also paste an https
+            image URL above.
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-semibold" htmlFor="startsAt">

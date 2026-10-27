@@ -13,6 +13,7 @@ import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
 import { sendNativePush } from "@/lib/push/fcm";
 import { db } from "@/lib/db";
 import { checkDbRateLimit } from "@/lib/rate-limiter";
+import { AdUploadError, uploadCreative } from "@/lib/admin/ad-upload";
 
 export async function login(formData: FormData): Promise<void> {
   // Slow down key guessing: ten attempts per IP per ten minutes.
@@ -60,9 +61,24 @@ export async function createCampaign(formData: FormData): Promise<void> {
       `/admin/sponsorships/new?error=${encodeURIComponent(parsed.errors.join(" "))}`
     );
   }
+  let imageUrl = parsed.value.imageUrl;
+  const upload = formData.get("imageFile");
+  if (upload instanceof File && upload.size > 0) {
+    try {
+      imageUrl = await uploadCreative(upload);
+    } catch (error) {
+      const message =
+        error instanceof AdUploadError
+          ? error.message
+          : "Creative upload failed. Try an https image URL instead.";
+      redirect(`/admin/sponsorships/new?error=${encodeURIComponent(message)}`);
+    }
+  }
+
   await db.sponsorship.create({
     data: {
       ...parsed.value,
+      imageUrl,
       assetLabel: parsed.value.assetLabel ?? null,
       disclosure: parsed.value.disclosure ?? null,
     },
