@@ -55,6 +55,11 @@ async function requireAdmin(): Promise<void> {
 
 export async function createCampaign(formData: FormData): Promise<void> {
   await requireAdmin();
+  const upload = formData.get("imageFile");
+  const hasUpload = upload instanceof File && upload.size > 0;
+  // A selected file wins over the optional URL, so a stale/invalid URL in the
+  // field must not block a file-only campaign.
+  if (hasUpload) formData.set("imageUrl", "");
   const parsed = parseCampaignForm(formData);
   if (!parsed.ok) {
     redirect(
@@ -62,8 +67,7 @@ export async function createCampaign(formData: FormData): Promise<void> {
     );
   }
   let imageUrl = parsed.value.imageUrl;
-  const upload = formData.get("imageFile");
-  if (upload instanceof File && upload.size > 0) {
+  if (hasUpload) {
     try {
       imageUrl = await uploadCreative(upload);
     } catch (error) {

@@ -43,7 +43,14 @@ export function parseCampaignForm(data: FormData): ParseResult {
   const ctaUrl = str(data, "ctaUrl");
   const startsAt = dateOrUndefined(str(data, "startsAt"));
   const endsAt = dateOrUndefined(str(data, "endsAt"));
-  const imageUrl = str(data, "imageUrl");
+  const rawImageUrl = str(data, "imageUrl");
+  const imageUrl = rawImageUrl
+    ? /^https?:\/\//i.test(rawImageUrl)
+      ? rawImageUrl.replace(/^http:\/\//i, "https://")
+      : /^[a-z][a-z0-9+.-]*:\/\//i.test(rawImageUrl)
+        ? rawImageUrl
+        : `https://${rawImageUrl}`
+    : "";
 
   if (!PLACEMENTS.includes(placement as (typeof PLACEMENTS)[number])) {
     errors.push("Choose a valid placement.");
@@ -60,7 +67,7 @@ export function parseCampaignForm(data: FormData): ParseResult {
   if (startsAt && endsAt && endsAt <= startsAt)
     errors.push("End must be after start.");
   if (imageUrl && !/^https:\/\//i.test(imageUrl))
-    errors.push("Image URL must start with https://.");
+    errors.push("Image URL must be an https URL.");
 
   if (errors.length > 0) return { ok: false, errors };
   return {
