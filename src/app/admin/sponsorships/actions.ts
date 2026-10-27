@@ -71,10 +71,21 @@ export async function createCampaign(formData: FormData): Promise<void> {
     try {
       imageUrl = await uploadCreative(upload);
     } catch (error) {
+      console.error("Creative upload failed", {
+        name: (error as Error)?.name,
+        message: (error as Error)?.message,
+        fileName: upload.name,
+        fileSize: upload.size,
+        fileType: upload.type,
+        blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+        storeId: process.env.BLOB_STORE_ID ? "set" : "unset",
+      });
       const message =
         error instanceof AdUploadError
           ? error.message
-          : "Creative upload failed. Try an https image URL instead.";
+          : `Creative upload failed: ${
+              error instanceof Error ? error.message : "unknown Blob error"
+            }`;
       redirect(`/admin/sponsorships/new?error=${encodeURIComponent(message)}`);
     }
   }
