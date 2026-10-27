@@ -67,7 +67,7 @@ export function CampaignForm() {
               maxLength={max}
               onChange={set(key)}
               className="w-full rounded-lg border px-3 py-2"
-              required={key !== "assetLabel" && key !== "disclosure"}
+              required={!["assetLabel", "disclosure", "imageUrl"].includes(key)}
             />
           </div>
         ))}
