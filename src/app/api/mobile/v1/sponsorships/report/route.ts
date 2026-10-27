@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
+import { adminKeyMatches } from "@/lib/admin-key";
 
 const WHERE = "api/mobile/v1/sponsorships/report";
 
@@ -21,7 +22,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.SPONSORSHIP_ADMIN_KEY?.trim();
   if (!expected)
     return json({ error: "Sponsorship admin is not configured." }, 503);
-  if (request.headers.get("x-admin-key")?.trim() !== expected) {
+  if (!adminKeyMatches(request.headers.get("x-admin-key"), expected)) {
     return json({ error: "Unauthorized" }, 401);
   }
 

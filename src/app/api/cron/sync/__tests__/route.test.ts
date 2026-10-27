@@ -25,9 +25,9 @@ const videos = vi.mocked(syncScraperVideos);
 const push = vi.mocked(sendPushNotifications);
 
 function get(secret?: string): Request {
-  const url = new URL("http://localhost/api/cron/sync");
-  if (secret) url.searchParams.set("secret", secret);
-  return new Request(url);
+  return new Request("http://localhost/api/cron/sync", {
+    headers: secret ? { authorization: `Bearer ${secret}` } : {},
+  });
 }
 
 beforeEach(() => {
