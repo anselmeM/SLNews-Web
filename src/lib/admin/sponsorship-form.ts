@@ -11,6 +11,7 @@ export type CampaignInput = {
   brandAccentHex: string;
   assetLabel?: string;
   disclosure?: string;
+  imageUrl?: string;
   startsAt?: Date;
   endsAt?: Date;
 };
@@ -42,6 +43,7 @@ export function parseCampaignForm(data: FormData): ParseResult {
   const ctaUrl = str(data, "ctaUrl");
   const startsAt = dateOrUndefined(str(data, "startsAt"));
   const endsAt = dateOrUndefined(str(data, "endsAt"));
+  const imageUrl = str(data, "imageUrl");
 
   if (!PLACEMENTS.includes(placement as (typeof PLACEMENTS)[number])) {
     errors.push("Choose a valid placement.");
@@ -57,6 +59,8 @@ export function parseCampaignForm(data: FormData): ParseResult {
     errors.push("CTA URL must start with http(s)://.");
   if (startsAt && endsAt && endsAt <= startsAt)
     errors.push("End must be after start.");
+  if (imageUrl && !/^https:\/\//i.test(imageUrl))
+    errors.push("Image URL must start with https://.");
 
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -72,6 +76,7 @@ export function parseCampaignForm(data: FormData): ParseResult {
       brandAccentHex: str(data, "brandAccentHex") || "#2E9BF5",
       assetLabel: str(data, "assetLabel") || undefined,
       disclosure: str(data, "disclosure") || undefined,
+      imageUrl: imageUrl || undefined,
       startsAt,
       endsAt,
     },

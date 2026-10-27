@@ -131,26 +131,27 @@ async function main() {
   });
 
   // 4. Seed market prices
-  // Sources: Sierra Leone Web (sierra-leone.org/prices.html), NPRA (pra.gov.sl), Selina Wamucii, Facebook/MIC SL
-  // Prices in NLe (New Leone) unless noted. Updated July 2026.
+  // Sources: NPRA (pra.gov.sl, petroleum prices effective 24 Sep 2026), market reports (July 2026)
+  // Prices in NLe (New Leone) unless noted. Updated 26 Oct 2026.
   const marketPrices = [
     // Rice (per 50kg bag)
-    { commodity: "Rice (50kg)", market: "Freetown Central", price: 180, trend: "up", trendPct: 2.5, trendPeriod: "this month" },
-    { commodity: "Rice (50kg)", market: "Bo Market", price: 185, trend: "up", trendPct: 3.0, trendPeriod: "this month" },
-    { commodity: "Rice (50kg)", market: "Makeni Hub", price: 190, trend: "up", trendPct: 2.8, trendPeriod: "this month" },
-    { commodity: "Rice (50kg)", market: "Kenema", price: 195, trend: "up", trendPct: 1.5, trendPeriod: "this month" },
+    { commodity: "Rice (50kg)", market: "Freetown Central", price: 850, trend: "up", trendPct: 2.5, trendPeriod: "since July" },
+    { commodity: "Rice (50kg)", market: "Bo Market", price: 880, trend: "up", trendPct: 3.0, trendPeriod: "since July" },
+    { commodity: "Rice (50kg)", market: "Makeni Hub", price: 895, trend: "up", trendPct: 2.8, trendPeriod: "since July" },
+    { commodity: "Rice (50kg)", market: "Kenema", price: 910, trend: "up", trendPct: 1.5, trendPeriod: "since July" },
     { commodity: "Rice (cup)", market: "Freetown Central", price: 1.5, trend: "up", trendPct: 1.0, trendPeriod: "this week" },
-    // Petrol (per litre)
-    { commodity: "Petrol", market: "Freetown Central", price: 30, trend: "down", trendPct: -8.0, trendPeriod: "this week" },
-    { commodity: "Petrol", market: "Bo Market", price: 32, trend: "down", trendPct: -5.0, trendPeriod: "this week" },
-    { commodity: "Petrol", market: "Makeni Hub", price: 33, trend: "down", trendPct: -4.0, trendPeriod: "this week" },
-    { commodity: "Petrol", market: "Kenema", price: 34, trend: "down", trendPct: -3.0, trendPeriod: "this week" },
-    // Diesel (per litre)
-    { commodity: "Diesel", market: "Freetown Central", price: 32, trend: "down", trendPct: -5.0, trendPeriod: "this week" },
-    { commodity: "Diesel", market: "Bo Market", price: 34, trend: "down", trendPct: -3.0, trendPeriod: "this week" },
-    { commodity: "Diesel", market: "Makeni Hub", price: 35, trend: "stable", trendPct: 0, trendPeriod: "this week" },
-    // Kerosene (per litre)
-    { commodity: "Kerosene", market: "Freetown Central", price: 28, trend: "stable", trendPct: 0, trendPeriod: "this week" },
+    // Petrol (per litre, national regulated pump price — NPRA eff. 24 Sep 2026)
+    { commodity: "Petrol", market: "Freetown Central", price: 40, trend: "up", trendPct: 14.3, trendPeriod: "since 24 Sep" },
+    { commodity: "Petrol", market: "Bo Market", price: 40, trend: "up", trendPct: 14.3, trendPeriod: "since 24 Sep" },
+    { commodity: "Petrol", market: "Makeni Hub", price: 40, trend: "up", trendPct: 14.3, trendPeriod: "since 24 Sep" },
+    { commodity: "Petrol", market: "Kenema", price: 40, trend: "up", trendPct: 14.3, trendPeriod: "since 24 Sep" },
+    // Diesel (per litre, national regulated pump price — NPRA eff. 24 Sep 2026)
+    { commodity: "Diesel", market: "Freetown Central", price: 45, trend: "up", trendPct: 12.5, trendPeriod: "since 24 Sep" },
+    { commodity: "Diesel", market: "Bo Market", price: 45, trend: "up", trendPct: 12.5, trendPeriod: "since 24 Sep" },
+    { commodity: "Diesel", market: "Makeni Hub", price: 45, trend: "up", trendPct: 12.5, trendPeriod: "since 24 Sep" },
+    { commodity: "Diesel", market: "Kenema", price: 45, trend: "up", trendPct: 12.5, trendPeriod: "since 24 Sep" },
+    // Kerosene (per litre, national regulated pump price — NPRA eff. 24 Sep 2026)
+    { commodity: "Kerosene", market: "Freetown Central", price: 44.1, trend: "up", trendPct: 36.7, trendPeriod: "since 24 Sep" },
     // Cement (per bag)
     { commodity: "Cement (Imported)", market: "Freetown Central", price: 180, trend: "up", trendPct: 3.0, trendPeriod: "this month" },
     { commodity: "Cement (Local)", market: "Freetown Central", price: 170, trend: "stable", trendPct: 0, trendPeriod: "this month" },

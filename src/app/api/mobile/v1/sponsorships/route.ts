@@ -117,6 +117,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!/^https?:\/\//i.test(String(body.ctaUrl))) {
     return noStore({ error: "ctaUrl must be an absolute http(s) URL." }, 400);
   }
+  if (
+    typeof body.imageUrl === "string" &&
+    body.imageUrl.trim() &&
+    !/^https:\/\//i.test(body.imageUrl.trim())
+  ) {
+    return noStore({ error: "imageUrl must be an absolute https URL." }, 400);
+  }
 
   try {
     const created = (await db.sponsorship.create({
