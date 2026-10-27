@@ -14,6 +14,7 @@ const defaults = {
   brandAccentHex: "#2E9BF5",
   assetLabel: "$5",
   disclosure: "Terms apply",
+  imageUrl: "",
 };
 
 /** Create form with a live preview of the native card the app will render. */
@@ -52,6 +53,7 @@ export function CampaignForm() {
             ["brandAccentHex", "Accent colour (#RRGGBB)", 7],
             ["assetLabel", "Offer label (optional)", 20],
             ["disclosure", "Disclosure (optional)", 60],
+            ["imageUrl", "Image URL (optional, https)", 500],
           ] as const
         ).map(([key, label, max]) => (
           <div key={key}>
@@ -114,6 +116,14 @@ export function CampaignForm() {
               background: `linear-gradient(135deg, ${form.brandAccentHex}, ${form.brandHex})`,
             }}
           >
+            {form.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={form.imageUrl}
+                alt=""
+                className="mb-3 h-24 w-full rounded-lg object-cover"
+              />
+            ) : null}
             <p className="text-2xl font-black">{form.headline || "Headline"}</p>
             {form.assetLabel ? (
               <div className="mt-3 inline-block rounded-lg bg-white px-3 py-2 text-xs font-bold text-black">
