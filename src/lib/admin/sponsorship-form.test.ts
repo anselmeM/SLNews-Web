@@ -44,4 +44,18 @@ describe("parseCampaignForm", () => {
     data.set("endsAt", "2026-11-01T00:00");
     expect(parseCampaignForm(data).ok).toBe(false);
   });
+
+  it("treats a blank image URL as optional", () => {
+    const data = new FormData();
+    data.set("placement", "feed");
+    data.set("advertiser", "Orange SL");
+    data.set("headline", "SCAN AND SAVE");
+    data.set("body", "Every top-up this month");
+    data.set("ctaLabel", "View more");
+    data.set("ctaUrl", "https://example.com/offer");
+    data.set("imageUrl", "");
+    const result = parseCampaignForm(data);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.imageUrl).toBeUndefined();
+  });
 });
