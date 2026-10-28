@@ -55,6 +55,11 @@ async function requireAdmin(): Promise<void> {
 
 export async function createCampaign(formData: FormData): Promise<void> {
   await requireAdmin();
+  const upload = formData.get("imageFile");
+  const hasUpload = upload instanceof File && upload.size > 0;
+  // A selected file wins over the optional URL, so a stale/invalid URL in the
+  // field must not block a file-only campaign.
+  if (hasUpload) formData.set("imageUrl", "");
   const parsed = parseCampaignForm(formData);
   if (!parsed.ok) {
     redirect(
@@ -62,15 +67,25 @@ export async function createCampaign(formData: FormData): Promise<void> {
     );
   }
   let imageUrl = parsed.value.imageUrl;
-  const upload = formData.get("imageFile");
-  if (upload instanceof File && upload.size > 0) {
+  if (hasUpload) {
     try {
       imageUrl = await uploadCreative(upload);
     } catch (error) {
+      console.error("Creative upload failed", {
+        name: (error as Error)?.name,
+        message: (error as Error)?.message,
+        fileName: upload.name,
+        fileSize: upload.size,
+        fileType: upload.type,
+        blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+        storeId: process.env.BLOB_STORE_ID ? "set" : "unset",
+      });
       const message =
         error instanceof AdUploadError
           ? error.message
-          : "Creative upload failed. Try an https image URL instead.";
+          : `Creative upload failed: ${
+              error instanceof Error ? error.message : "unknown Blob error"
+            }`;
       redirect(`/admin/sponsorships/new?error=${encodeURIComponent(message)}`);
     }
   }

@@ -67,7 +67,7 @@ export function CampaignForm() {
               maxLength={max}
               onChange={set(key)}
               className="w-full rounded-lg border px-3 py-2"
-              required={key !== "assetLabel" && key !== "disclosure"}
+              required={!["assetLabel", "disclosure", "imageUrl"].includes(key)}
             />
           </div>
         ))}
@@ -80,6 +80,9 @@ export function CampaignForm() {
             id="imageFile"
             name="imageFile"
             type="file"
+            onChange={() =>
+              setForm((current) => ({ ...current, imageUrl: "" }))
+            }
             accept="image/jpeg,image/png,image/webp,image/avif"
             className="w-full rounded-lg border px-3 py-2 text-xs"
           />
