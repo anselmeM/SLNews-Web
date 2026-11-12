@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 
 /** Vercel's function request body limit is 4.5 MB; keep margin for multipart. */
 export const MAX_CREATIVE_BYTES = 4 * 1024 * 1024;
@@ -27,7 +27,25 @@ export function validateCreativeFile(file: File): string | null {
   return null;
 }
 
-/** Uploads a validated creative and returns its public URL. */
+function safeExtension(name: string): string {
+  const extension = name.split(".").pop()?.toLowerCase() ?? "jpg";
+  return /^(jpe?g|png|webp|avif)$/.test(extension) ? extension : "jpg";
+}
+
+function appOrigin(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ?? "https://sl-news.vercel.app"
+  ).replace(/\/+$/, "");
+}
+
+/**
+ * Uploads a validated creative and returns a URL the app can fetch.
+ *
+ * Public stores return Blob's CDN URL. Private stores (the safer default) can
+ * only be read with the store token, so the app receives our own proxy URL
+ * instead; `/api/mobile/v1/creative` streams the blob with a long immutable
+ * cache. The pathname is a random UUID, so the proxy URL is unguessable.
+ */
 export async function uploadCreative(file: File): Promise<string> {
   if (!isUploadConfigured()) {
     throw new AdUploadError(
@@ -36,14 +54,42 @@ export async function uploadCreative(file: File): Promise<string> {
   }
   const invalid = validateCreativeFile(file);
   if (invalid) throw new AdUploadError(invalid);
-  const extension = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-  const safeExtension = /^(jpe?g|png|webp|avif)$/.test(extension)
-    ? extension
-    : "jpg";
-  const blob = await put(
-    `sponsorships/${crypto.randomUUID()}.${safeExtension}`,
-    file,
-    { access: "public", addRandomSuffix: false, contentType: file.type }
-  );
-  return blob.url;
+
+  const pathname = `sponsorships/${crypto.randomUUID()}.${safeExtension(file.name)}`;
+  const common = {
+    addRandomSuffix: false,
+    contentType: file.type,
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  };
+
+  try {
+    const blob = await put(pathname, file, { ...common, access: "public" });
+    return blob.url;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/private store/i.test(message)) throw error;
+    // Private store: store the blob and hand out the authenticated proxy URL.
+    const blob = await put(pathname, file, { ...common, access: "private" });
+    return `${appOrigin()}/api/mobile/v1/creative?path=${encodeURIComponent(blob.pathname)}`;
+  }
+}
+
+/** Streams a private-store creative. Only paths created by uploadCreative pass. */
+export async function readCreative(pathname: string): Promise<{
+  stream: ReadableStream<Uint8Array>;
+  contentType: string;
+  size: number;
+} | null> {
+  if (!pathname.startsWith("sponsorships/") || pathname.includes(".."))
+    return null;
+  const result = await get(pathname, {
+    access: "private",
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+  if (!result || result.statusCode !== 200) return null;
+  return {
+    stream: result.stream,
+    contentType: result.blob.contentType ?? "application/octet-stream",
+    size: result.blob.size,
+  };
 }
