@@ -5,7 +5,8 @@
  * only do transport: resolve the caller, rate limit, validate, delegate to
  * `src/lib/mobile-sync/`, and map the result onto the contract's status codes.
  */
-import { NextResponse } from "next/server";
+import type { NextResponse } from "next/server";
+import { noStoreJson as json } from "@/lib/api/responses";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
 import {
@@ -80,16 +81,6 @@ function tooManyRequests(retryAfterSeconds: number): NextResponse {
 }
 
 /** Sync responses are per-user state: never cacheable, by anyone. */
-function json(
-  body: unknown,
-  status: number,
-  headers: Record<string, string> = {}
-): NextResponse {
-  return NextResponse.json(body, {
-    status,
-    headers: { "Cache-Control": "no-store", ...headers },
-  });
-}
 
 function invalidRequest<T>(
   result: Extract<ValidationResult<T>, { ok: false }>
