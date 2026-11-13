@@ -114,12 +114,47 @@ export async function extendCampaign(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   const days = Number(formData.get("days") ?? 7);
   if (id) {
+    const campaign = await db.sponsorship.findUnique({ where: { id } });
+    const now = new Date();
+    // Extending is not a revival: only an active, unexpired campaign can move
+    // its end date. Stopped/expired campaigns use the explicit reactivate path.
+    if (
+      !campaign ||
+      !campaign.active ||
+      (campaign.endsAt !== null && campaign.endsAt <= now)
+    ) {
+      redirect("/admin/sponsorships?extendBlocked=1");
+    }
+    const base =
+      campaign?.endsAt !== null && campaign?.endsAt !== undefined
+        ? campaign.endsAt
+        : now;
     await db.sponsorship.update({
       where: { id },
-      data: { active: true, endsAt: new Date(Date.now() + days * 86_400_000) },
+      data: { endsAt: new Date(base.getTime() + days * 86_400_000) },
     });
   }
   redirect("/admin/sponsorships?extended=1");
+}
+
+/** Explicitly brings a stopped/expired campaign back for a fresh 7-day window. */
+export async function reactivateCampaign(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (id) {
+    const campaign = await db.sponsorship.findUnique({ where: { id } });
+    const now = new Date();
+    if (!campaign) redirect("/admin/sponsorships?reactivateFailed=1");
+    const keepEnd =
+      campaign.endsAt !== null && campaign.endsAt > now
+        ? campaign.endsAt
+        : new Date(now.getTime() + 7 * 86_400_000);
+    await db.sponsorship.update({
+      where: { id },
+      data: { active: true, endsAt: keepEnd },
+    });
+  }
+  redirect("/admin/sponsorships?reactivated=1");
 }
 
 /** Inserts a browser-safe demo campaign so the whole loop can be tried without PowerShell. */
