@@ -7,9 +7,9 @@
  * service account, token registry and app registration all work together.
  */
 import { NextResponse } from "next/server";
+import { adminKeyMatches } from "@/lib/admin-key";
 import { reportError } from "@/lib/error-reporting";
 import { sendNativePush } from "@/lib/push/fcm";
-import { adminKeyMatches } from "@/lib/admin-key";
 
 function json(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
