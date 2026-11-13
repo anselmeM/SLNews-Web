@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import {
   extendCampaign,
   logout,
+  reactivateCampaign,
   seedDemoCampaign,
   sendTestPush,
   stopCampaign,
@@ -23,6 +24,9 @@ export default async function SponsorshipsAdminPage({
     created?: string;
     stopped?: string;
     extended?: string;
+    reactivated?: string;
+    extendBlocked?: string;
+    reactivateFailed?: string;
   }>;
 }) {
   if (!(await isAdminRequest())) redirect("/admin/sponsorships/login");
@@ -84,6 +88,21 @@ export default async function SponsorshipsAdminPage({
           Campaign extended by 7 days.
         </p>
       ) : null}
+      {flags.reactivated ? (
+        <p className="rounded-lg bg-emerald-50 p-2 text-emerald-800">
+          Campaign reactivated for a fresh 7-day window.
+        </p>
+      ) : null}
+      {flags.extendBlocked ? (
+        <p className="rounded-lg bg-amber-50 p-2 text-amber-800">
+          Only an active, unexpired campaign can be extended. Use Reactivate.
+        </p>
+      ) : null}
+      {flags.reactivateFailed ? (
+        <p className="rounded-lg bg-amber-50 p-2 text-amber-800">
+          That campaign no longer exists.
+        </p>
+      ) : null}
 
       <p className="text-xs text-on-surface-variant">
         Total: {totals.impressions} impressions · {totals.taps} taps · CTR{" "}
@@ -130,19 +149,30 @@ export default async function SponsorshipsAdminPage({
                   <td className="p-2">{ctr(row.impressions, row.taps)}</td>
                   <td className="p-2">
                     <div className="flex gap-2">
-                      <form action={stopCampaign}>
-                        <input type="hidden" name="id" value={row.id} />
-                        <button className="rounded border border-outline-variant/40 px-2 py-1">
-                          Stop
-                        </button>
-                      </form>
-                      <form action={extendCampaign}>
-                        <input type="hidden" name="id" value={row.id} />
-                        <input type="hidden" name="days" value="7" />
-                        <button className="rounded border border-outline-variant/40 px-2 py-1">
-                          +7d
-                        </button>
-                      </form>
+                      {row.active ? (
+                        <>
+                          <form action={stopCampaign}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <button className="rounded border border-outline-variant/40 px-2 py-1">
+                              Stop
+                            </button>
+                          </form>
+                          <form action={extendCampaign}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <input type="hidden" name="days" value="7" />
+                            <button className="rounded border border-outline-variant/40 px-2 py-1">
+                              +7d
+                            </button>
+                          </form>
+                        </>
+                      ) : (
+                        <form action={reactivateCampaign}>
+                          <input type="hidden" name="id" value={row.id} />
+                          <button className="rounded border border-outline-variant/40 px-2 py-1">
+                            Reactivate
+                          </button>
+                        </form>
+                      )}
                     </div>
                   </td>
                 </tr>
