@@ -1,12 +1,11 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 import MarketingHeader from "@/components/marketing/MarketingHeader";
 import ThemeSync from "@/components/ThemeSync";
 import { ToastProvider } from "@/components/Toast";
-import Script from "next/script";
 import "./globals.css";
-import { auth } from "@/auth";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -53,8 +52,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
-
   return (
     <ClerkProvider>
       <html lang="en" className="antialiased" suppressHydrationWarning>
@@ -89,6 +86,8 @@ export default async function RootLayout({
             href="https://fonts.gstatic.com"
             crossOrigin="anonymous"
           />
+          {/* Material Symbols is an icon font; a single root load is intended. */}
+          {/* eslint-disable-next-line @next/next/no-page-custom-font */}
           <link
             href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
             rel="stylesheet"

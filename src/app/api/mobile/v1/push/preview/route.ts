@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { sendTopicPush } from "@/lib/push/fcm";
 import { adminKeyMatches } from "@/lib/admin-key";
+import { sendTopicPush } from "@/lib/push/fcm";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;

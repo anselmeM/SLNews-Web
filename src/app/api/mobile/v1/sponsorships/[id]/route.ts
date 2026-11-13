@@ -6,9 +6,9 @@
  * monthly report. Both require `x-admin-key`.
  */
 import { NextResponse } from "next/server";
+import { adminKeyMatches } from "@/lib/admin-key";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
-import { adminKeyMatches } from "@/lib/admin-key";
 
 const WHERE = "api/mobile/v1/sponsorships/[id]";
 

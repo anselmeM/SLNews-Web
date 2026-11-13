@@ -9,9 +9,9 @@
  * POST {placement, advertiser, headline, body, ctaLabel, ctaUrl, ...} -> 201
  */
 import { NextResponse } from "next/server";
+import { adminKeyMatches } from "@/lib/admin-key";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
-import { adminKeyMatches } from "@/lib/admin-key";
 
 const WHERE = "api/mobile/v1/sponsorships";
 const MAX_ITEMS = 6;
