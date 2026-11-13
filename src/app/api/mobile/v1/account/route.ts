@@ -16,7 +16,8 @@
  * Order matters: our rows go first so a Clerk failure leaves a usable account the
  * reader can retry from, rather than an identity that can never be deleted again.
  */
-import { NextResponse } from "next/server";
+import type { NextResponse } from "next/server";
+import { noStoreJson as json } from "@/lib/api/responses";
 import { deleteClerkUser } from "@/lib/clerk-backend";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
@@ -28,16 +29,6 @@ const WHERE = "api/mobile/v1/account";
 const RATE_LIMIT = { maxRequests: 5, windowMs: 60_000 };
 
 /** Per-user state operations are never cacheable. */
-function json(
-  body: unknown,
-  status: number,
-  headers: Record<string, string> = {}
-): NextResponse {
-  return NextResponse.json(body, {
-    status,
-    headers: { "Cache-Control": "no-store", ...headers },
-  });
-}
 
 export async function DELETE(request: Request): Promise<NextResponse> {
   let userId: string;

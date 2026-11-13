@@ -14,6 +14,7 @@
  * minute per reader+IP.
  */
 import { NextResponse } from "next/server";
+import { noStoreJson as json } from "@/lib/api/responses";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
 import { resolveMobileUser } from "@/lib/mobile-sync/resolve-mobile-user";
@@ -62,16 +63,6 @@ async function resolveCaller(request: Request): Promise<Resolution> {
 }
 
 /** Registry responses are per-user state: never cacheable. */
-function json(
-  body: unknown,
-  status: number,
-  headers: Record<string, string> = {}
-): NextResponse {
-  return NextResponse.json(body, {
-    status,
-    headers: { "Cache-Control": "no-store", ...headers },
-  });
-}
 
 function unauthorized(): NextResponse {
   return json({ error: "Unauthorized" }, 401);
