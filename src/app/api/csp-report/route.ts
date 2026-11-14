@@ -42,6 +42,39 @@ function firstReport(body: unknown): CspReport | null {
  * endpoint is best-effort rate limited (in memory, so no IP address is persisted
  * to protect an endpoint whose whole point is not identifying anyone).
  */
+/**
+ * Reads at most [MAX_BODY_BYTES] from the request stream.
+ *
+ * `request.text()` would buffer an arbitrarily large body before the slice;
+ * this bounds memory even when the caller omits Content-Length or uses chunked
+ * transfer encoding. Returns null when the limit is exceeded.
+ */
+async function readLimitedBody(request: Request): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? NaN);
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   const limit = checkRateLimit(`csp:${getClientIp(request)}`, {
     maxRequests: MAX_REPORTS_PER_HOUR,
@@ -51,9 +84,14 @@ export async function POST(request: Request) {
     return new NextResponse(null, { status: 429 });
   }
 
+  const raw = await readLimitedBody(request);
+  if (raw === null) {
+    return new NextResponse(null, { status: 413 });
+  }
+
   let body: unknown;
   try {
-    body = JSON.parse((await request.text()).slice(0, MAX_BODY_BYTES));
+    body = JSON.parse(raw);
   } catch {
     // Browsers occasionally send an empty body; anything unparseable is noise.
     return new NextResponse(null, { status: 204 });
