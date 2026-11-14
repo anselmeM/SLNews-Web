@@ -100,6 +100,13 @@ describe("POST /api/csp-report", () => {
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
+  it("rejects an oversized report without buffering it unboundedly", async () => {
+    const response = await POST(report("x".repeat(9_000)));
+
+    expect(response.status).toBe(413);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it("rate limits a caller that floods the endpoint", async () => {
     let lastStatus = 204;
     for (let i = 0; i < 61; i++) {
