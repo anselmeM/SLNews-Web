@@ -1,7 +1,10 @@
-import type { Article, User, Category, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { findArticlePage, type ArticleWithRelations } from "./article-query";
 import { cachedFetch, staleWhileRevalidate } from "./cache";
 import { db } from "./db";
 import { provinceMatchTerms } from "./geo";
+
+export type { ArticleWithRelations } from "./article-query";
 
 export type NewsArticle = {
   id: string;
@@ -16,11 +19,6 @@ export type NewsArticle = {
   publishedAt: string;
   externalUrl?: string;
   authorId: string;
-};
-
-export type ArticleWithRelations = Article & {
-  author: Pick<User, "name" | "image"> | null;
-  categories: Pick<Category, "name">[];
 };
 
 export function mapPrismaArticle(article: ArticleWithRelations): NewsArticle {
@@ -91,13 +89,7 @@ export async function fetchSLNews(
         categories: { some: { name: { in: categoryNames } } },
       };
       if (region) where.province = region;
-      const articles = await db.article.findMany({
-        where,
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+      const articles = await findArticlePage(where, { skip, take });
       return articles.map(mapPrismaArticle);
     },
     TTL.feed
@@ -114,28 +106,22 @@ async function fetchMixedFeedPage(
   // Both groups advance by the same offset so every page stays a half/half mix.
   const groupSkip = Math.floor(skip / 2);
   const [sl, world] = await Promise.all([
-    db.article.findMany({
-      where: {
+    findArticlePage(
+      {
         published: true,
         status: "PUBLISHED",
         categories: { some: { name: { in: SL_FEED_CATEGORIES } } },
       },
-      orderBy: { publishedAt: "desc" },
-      include: { author: true, categories: true },
-      skip: groupSkip,
-      take: half,
-    }),
-    db.article.findMany({
-      where: {
+      { skip: groupSkip, take: half }
+    ),
+    findArticlePage(
+      {
         published: true,
         status: "PUBLISHED",
         categories: { some: { name: { in: WORLD_FEED_CATEGORIES } } },
       },
-      orderBy: { publishedAt: "desc" },
-      include: { author: true, categories: true },
-      skip: groupSkip,
-      take: half,
-    }),
+      { skip: groupSkip, take: half }
+    ),
   ]);
 
   const mixed: ArticleWithRelations[] = [];
@@ -182,13 +168,10 @@ export async function fetchTrendingNews(
   return staleWhileRevalidate(
     `trending:${skip}:${take}`,
     async () => {
-      const articles = await db.article.findMany({
-        where: { published: true, status: "PUBLISHED" },
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+      const articles = await findArticlePage(
+        { published: true, status: "PUBLISHED" },
+        { skip, take }
+      );
       return articles.map(mapPrismaArticle);
     },
     60
@@ -204,20 +187,14 @@ export async function fetchLocalNews(
   return staleWhileRevalidate(
     `local:${province}:${district}:${skip}:${take}`,
     async () => {
-      const where: Record<string, unknown> = {
+      const where: Prisma.ArticleWhereInput = {
         published: true,
         status: "PUBLISHED",
         categories: { some: { name: { in: SL_FEED_CATEGORIES } } },
       };
       if (province) where.province = province;
       if (district) where.district = district;
-      const articles = await db.article.findMany({
-        where,
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+      const articles = await findArticlePage(where, { skip, take });
       return articles.map(mapPrismaArticle);
     },
     TTL.feed
@@ -233,17 +210,14 @@ export async function fetchWorldNews(
     `world:${topic}:${skip}:${take}`,
     async () => {
       const categoryName = topic && topic !== "World" ? topic : "International";
-      const articles = await db.article.findMany({
-        where: {
+      const articles = await findArticlePage(
+        {
           published: true,
           status: "PUBLISHED",
           categories: { some: { name: categoryName } },
         },
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+        { skip, take }
+      );
       return articles.map(mapPrismaArticle);
     },
     TTL.feed
@@ -258,17 +232,14 @@ export async function fetchNationalNews(
   return staleWhileRevalidate(
     `national:${category}:${skip}:${take}`,
     async () => {
-      const articles = await db.article.findMany({
-        where: {
+      const articles = await findArticlePage(
+        {
           published: true,
           status: "PUBLISHED",
           categories: { some: { name: category } },
         },
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+        { skip, take }
+      );
       return articles.map(mapPrismaArticle);
     },
     TTL.feed
@@ -342,13 +313,7 @@ export async function searchArticles(
         const from = new Date(f.dateFrom);
         if (!Number.isNaN(from.getTime())) where.publishedAt = { gte: from };
       }
-      const articles = await db.article.findMany({
-        where,
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+      const articles = await findArticlePage(where, { skip, take });
       return articles.map(mapPrismaArticle);
     },
     15
@@ -363,17 +328,15 @@ export async function fetchRelatedArticles(
   return cachedFetch(
     `related:${excludeId}:${category}:${take}`,
     async () => {
-      const articles = await db.article.findMany({
-        where: {
+      const articles = await findArticlePage(
+        {
           id: { not: excludeId },
           published: true,
           status: "PUBLISHED",
           categories: { some: { name: category } },
         },
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        take,
-      });
+        { take }
+      );
       return articles.map(mapPrismaArticle);
     },
     TTL.single
@@ -395,17 +358,14 @@ export async function fetchFollowingNews(
       const authorIds = follows.map((f) => f.followingId);
       if (authorIds.length === 0) return [];
 
-      const articles = await db.article.findMany({
-        where: {
+      const articles = await findArticlePage(
+        {
           published: true,
           status: "PUBLISHED",
           authorId: { in: authorIds },
         },
-        orderBy: { publishedAt: "desc" },
-        include: { author: true, categories: true },
-        skip,
-        take,
-      });
+        { skip, take }
+      );
       return articles.map(mapPrismaArticle);
     },
     TTL.feed
