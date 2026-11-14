@@ -119,6 +119,8 @@ const nextConfig: NextConfig = {
               "media-src 'self' https: data: blob:",
               `connect-src 'self' https://*.vercel.app https://*.neon.tech https://*.currentsapi.services https://slnewsapiscapper.onrender.com https://*.youtube.com https://youtube.com https://*.google.com https://*.clerk.accounts.dev https://clerk.com https://*.clerk.com https://clerk-telemetry.com ${CLERK_CONNECTIONS}`,
               "worker-src 'self' blob:",
+              "object-src 'none'",
+              "base-uri 'self'",
               "frame-ancestors 'self'",
               `report-uri ${CSP_REPORT_URI}`,
             ]
