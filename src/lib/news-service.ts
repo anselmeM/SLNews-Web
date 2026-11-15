@@ -67,7 +67,6 @@ const WORLD_FEED_CATEGORIES = [
   "International",
   "Africa",
   "Business",
-  "Sports",
   "Tech",
   "Health",
   "Culture",
@@ -102,9 +101,13 @@ async function fetchMixedFeedPage(
   skip: number,
   take: number
 ): Promise<ArticleWithRelations[]> {
-  const half = Math.ceil(take / 2);
-  // Both groups advance by the same offset so every page stays a half/half mix.
-  const groupSkip = Math.floor(skip / 2);
+  // Roughly two Sierra Leone stories for every international one. Sports is
+  // deliberately absent from WORLD_FEED_CATEGORIES: the app has a dedicated
+  // Sports tab, and sports-only feeds would otherwise dominate the home page.
+  const slTake = Math.ceil((take * 2) / 3);
+  const worldTake = Math.max(1, take - slTake);
+  const slSkip = Math.floor((skip * 2) / 3);
+  const worldSkip = Math.max(0, skip - slSkip);
   const [sl, world] = await Promise.all([
     findArticlePage(
       {
@@ -112,7 +115,7 @@ async function fetchMixedFeedPage(
         status: "PUBLISHED",
         categories: { some: { name: { in: SL_FEED_CATEGORIES } } },
       },
-      { skip: groupSkip, take: half }
+      { skip: slSkip, take: slTake }
     ),
     findArticlePage(
       {
@@ -120,7 +123,7 @@ async function fetchMixedFeedPage(
         status: "PUBLISHED",
         categories: { some: { name: { in: WORLD_FEED_CATEGORIES } } },
       },
-      { skip: groupSkip, take: half }
+      { skip: worldSkip, take: worldTake }
     ),
   ]);
 
@@ -128,12 +131,16 @@ async function fetchMixedFeedPage(
   let li = 0;
   let wi = 0;
   while (mixed.length < take && (li < sl.length || wi < world.length)) {
-    const slItem = sl[li];
-    if (slItem) mixed.push(slItem);
-    li++;
-    const worldItem = world[wi];
-    if (worldItem && mixed.length < take) mixed.push(worldItem);
-    wi++;
+    for (let n = 0; n < 2 && li < sl.length && mixed.length < take; n++) {
+      const slItem = sl[li];
+      if (slItem) mixed.push(slItem);
+      li++;
+    }
+    if (wi < world.length && mixed.length < take) {
+      const worldItem = world[wi];
+      if (worldItem) mixed.push(worldItem);
+      wi++;
+    }
   }
   return mixed;
 }
