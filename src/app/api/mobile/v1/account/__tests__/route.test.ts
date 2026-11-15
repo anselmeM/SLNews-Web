@@ -3,7 +3,7 @@ import { DELETE } from "../route";
 import { deleteClerkUser } from "@/lib/clerk-backend";
 import { db } from "@/lib/db";
 import { resolveMobileUser } from "@/lib/mobile-sync/resolve-mobile-user";
-import { checkDbRateLimit } from "@/lib/rate-limiter";
+import { checkDbRateLimit, getClientIp } from "@/lib/rate-limiter";
 
 vi.mock("@/lib/db", () => ({
   db: {
@@ -110,13 +110,42 @@ describe("/api/mobile/v1/account DELETE", () => {
 
   it("hashes the request-derived rate-limit bucket key", async () => {
     await DELETE(request());
+    await DELETE(request());
+
+    const [first, second] = vi
+      .mocked(checkDbRateLimit)
+      .mock.calls.map(([key]) => key);
 
     // The bucket key goes to the database layer: it must be an opaque digest,
     // never the raw user id or client-controlled header value.
-    const key = vi.mocked(checkDbRateLimit).mock.calls[0]?.[0];
-    expect(key).toMatch(/^mobile-account-delete:[0-9a-f]{64}$/);
-    expect(key).not.toContain(USER_ID);
-    expect(key).not.toContain("203.0.113.7");
+    expect(first).toMatch(/^mobile-account-delete:[0-9a-f]{64}$/);
+    expect(first).not.toContain(USER_ID);
+    expect(first).not.toContain("203.0.113.7");
+
+    // Same reader and IP stay in one bucket.
+    expect(second).toBe(first);
+  });
+
+  it("gives a different bucket per reader and per client IP", async () => {
+    await DELETE(request());
+    const base = vi.mocked(checkDbRateLimit).mock.calls[0]?.[0];
+
+    vi.mocked(getClientIp).mockReturnValueOnce("198.51.100.9");
+    await DELETE(request());
+    const otherIp = vi.mocked(checkDbRateLimit).mock.calls[1]?.[0];
+
+    vi.mocked(resolveMobileUser).mockResolvedValueOnce({
+      id: "user_2",
+      email: null,
+      name: null,
+      image: null,
+      role: "USER",
+    } as never);
+    await DELETE(request());
+    const otherReader = vi.mocked(checkDbRateLimit).mock.calls[2]?.[0];
+
+    expect(otherIp).not.toBe(base);
+    expect(otherReader).not.toBe(base);
   });
 
   it("does not touch Clerk when the row delete fails", async () => {
