@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clerkFrontendApiOrigin } from "@/lib/clerk-csp";
 
-// The real CI/dev publishable key encodes this host.
-const DEV_KEY =
-  "pk_test_b3B0aW1hbC1zaGVwaGVyZC01OTE5LmNsZXJrLmFjY291bnRzLmRldiQ";
+// Publishable keys are `pk_<env>_<base64(frontendApiHost + "$")>`. Fixtures are
+// synthesised from the host instead of committing a real key: the key is public
+// by design, but a committed `pk_...` token trips secret scanners and normalises
+// leaking credentials into the repository.
+const publishableKeyFor = (env: "test" | "live", host: string) =>
+  `pk_${env}_${Buffer.from(`${host}$`).toString("base64")}`;
 
-const liveKeyFor = (host: string) =>
-  `pk_live_${Buffer.from(`${host}$`).toString("base64")}`;
+// The Frontend API host encoded by the CI/dev publishable key.
+const DEV_HOST = "optimal-shepherd-5919.clerk.accounts.dev";
+const DEV_KEY = publishableKeyFor("test", DEV_HOST);
+
+const liveKeyFor = (host: string) => publishableKeyFor("live", host);
 
 afterEach(() => {
   vi.unstubAllEnvs();
