@@ -1,9 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import {
-  NextResponse,
-  type NextFetchEvent,
-  type NextRequest,
-} from "next/server";
+import { NextRequest, NextResponse, type NextFetchEvent } from "next/server";
+import { buildCspHeader, generateNonce } from "@/lib/csp";
 import { logger } from "@/lib/logger";
 
 const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/profile(.*)"]);
@@ -38,6 +35,31 @@ async function hasAdminCookie(req: NextRequest): Promise<boolean> {
   return safeEqual(expected, token);
 }
 
+/** Attach the per-request policy to any middleware exit path. */
+function withCsp(response: Response, csp: string): Response {
+  response.headers.set("Content-Security-Policy", csp);
+  return response;
+}
+
+/**
+ * Forward headers to the App Router. The `Content-Security-Policy` request
+ * header is what Next reads to put the nonce on its hydration scripts; the
+ * `x-nonce` header is what Clerk reads for its own script tags.
+ */
+function nextWithHeaders(csp: string, headers: Headers): NextResponse {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("Content-Security-Policy", csp);
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
+/** App Router pass-through from inside the Clerk middleware callback. */
+function nextFromRequest(req: NextRequest): NextResponse {
+  const requestHeaders = new Headers(req.headers);
+  const csp = req.headers.get("Content-Security-Policy");
+  if (csp) requestHeaders.set("Content-Security-Policy", csp);
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 const hasClerkKeys = Boolean(
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY
 );
@@ -54,7 +76,7 @@ const clerkHandler = hasClerkKeys
         });
       }
 
-      return NextResponse.next();
+      return nextFromRequest(req);
     })
   : null;
 
@@ -62,16 +84,34 @@ export default async function middleware(
   req: NextRequest,
   evt: NextFetchEvent
 ) {
+  const nonce = generateNonce();
+  const csp = buildCspHeader(nonce);
+
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+
   const { pathname } = req.nextUrl;
   if (pathname.startsWith("/admin") && pathname !== ADMIN_LOGIN_PATH) {
     if (!(await hasAdminCookie(req))) {
-      return NextResponse.redirect(new URL(ADMIN_LOGIN_PATH, req.url), 307);
+      return withCsp(
+        NextResponse.redirect(new URL(ADMIN_LOGIN_PATH, req.url), 307),
+        csp
+      );
     }
   }
 
   if (clerkHandler) {
     try {
-      return await clerkHandler(req, evt);
+      // Clerk needs the request headers (cookies, x-nonce, CSP) while it
+      // authenticates and builds the response; reconstructing the request keeps
+      // those headers immutable-safe on the edge runtime.
+      const clerkReq = new NextRequest(req.url, {
+        method: req.method,
+        headers: requestHeaders,
+      });
+      const response = await clerkHandler(clerkReq, evt);
+      if (response) return withCsp(response, csp);
     } catch (err) {
       // Middleware runs on the edge runtime, and this catch is the last line of
       // defence before a request is served unauthenticated — so log it
@@ -83,7 +123,7 @@ export default async function middleware(
     }
   }
 
-  return NextResponse.next();
+  return nextWithHeaders(csp, requestHeaders);
 }
 
 export const config = {
