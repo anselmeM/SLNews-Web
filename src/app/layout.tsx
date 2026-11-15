@@ -1,5 +1,6 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import Script from "next/script";
 import MarketingFooter from "@/components/marketing/MarketingFooter";
 import MarketingHeader from "@/components/marketing/MarketingHeader";
@@ -52,12 +53,18 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Reading request headers opts every page into dynamic rendering, which is
+  // required for Next to put this response's CSP nonce on its script tags.
+  // Without this, `strict-dynamic` blocks the entire hydration bootstrap.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+
   return (
-    <ClerkProvider>
+    <ClerkProvider dynamic>
       <html lang="en" className="antialiased" suppressHydrationWarning>
         <head>
           <Script
             id="theme-init"
+            nonce={nonce}
             strategy="beforeInteractive"
             dangerouslySetInnerHTML={{
               __html: `

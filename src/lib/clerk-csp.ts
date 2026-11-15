@@ -6,12 +6,13 @@
  * (e.g. `optimal-shepherd-5919.clerk.accounts.dev`, or `clerk.slnews.sl` on a
  * production instance with its own-domain Frontend API).
  *
- * Deriving it means the Content-Security-Policy in `next.config.ts` always
+ * Deriving it means the Content-Security-Policy built in `src/lib/csp.ts` always
  * matches whichever instance is configured. Hardcoding a host instead leaves a
  * policy that silently blocks ClerkJS the moment the keys change — and that
  * happens in production, during the one change where debugging is hardest.
  *
- * Build-time only: used by `next.config.ts`.
+ * Evaluated by the per-request CSP builder (middleware/edge runtime); the key is
+ * embedded in the build environment, not read from the request.
  *
  * @returns e.g. `"https://clerk.slnews.sl"`, or `null` when the key is absent or
  *   malformed (callers should then fall back to the static Clerk origins).

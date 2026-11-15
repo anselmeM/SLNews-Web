@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import DownloadCTA from "./_components/DownloadCTA";
 import { siteUrl } from "@/lib/site-url";
@@ -73,7 +74,8 @@ const FAQS = [
   },
 ];
 
-export default function DownloadPage() {
+export default async function DownloadPage() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const appJsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -90,6 +92,7 @@ export default function DownloadPage() {
     <div className="w-full max-w-4xl mx-auto">
       <script
         type="application/ld+json"
+        nonce={nonce}
         dangerouslySetInnerHTML={{ __html: JSON.stringify(appJsonLd) }}
       />
 

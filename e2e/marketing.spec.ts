@@ -44,12 +44,68 @@ test.describe("Marketing site", () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("serves a production CSP without unsafe-eval", async ({ page }) => {
+  test("serves a nonce-based production CSP without unsafe-inline scripts", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+
     const response = await page.goto("/");
+    await page.waitForTimeout(1500);
+
     const csp = response?.headers()["content-security-policy"] ?? "";
     expect(csp).toContain("default-src 'self'");
     expect(csp).not.toContain("'unsafe-eval'");
     expect(csp).toContain("report-uri /api/csp-report");
+
+    const scriptSrc =
+      csp
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith("script-src ")) ?? "";
+    expect(scriptSrc).toContain("'strict-dynamic'");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+
+    const nonce = scriptSrc.match(/'nonce-([^']+)'/)?.[1];
+    expect(nonce, scriptSrc).toBeTruthy();
+
+    // Everything in the server-rendered HTML is authorised by the response
+    // nonce. Chunks that the nonce-bearing bootstrap injects later are allowed
+    // by `'strict-dynamic'` and do not need their own nonce attribute.
+    const html = await response?.text();
+    const ssrScripts = html?.match(/<script\b[^>]*>/g) ?? [];
+    expect(ssrScripts.length).toBeGreaterThan(0);
+    for (const tag of ssrScripts) {
+      expect(tag).toContain(`nonce="${nonce}"`);
+    }
+
+    const scripts = await page.locator("script").evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const script = node as HTMLScriptElement;
+        return {
+          // Chrome hides the content attribute after execution; the IDL
+          // property keeps the nonce the parser applied.
+          nonce: script.nonce,
+          src: script.src,
+          inline: !script.getAttribute("src"),
+        };
+      })
+    );
+    expect(scripts.some((script) => script.nonce === nonce)).toBe(true);
+    for (const script of scripts.filter((script) => script.inline)) {
+      // Inline scripts cannot be authorised by `'strict-dynamic'` via a
+      // trusted loader; they must carry the nonce themselves.
+      expect(script.nonce, JSON.stringify(script)).toBe(nonce);
+    }
+
+    expect(
+      consoleErrors.filter((message) =>
+        /content security policy/i.test(message)
+      )
+    ).toEqual([]);
+
     const expectedOrigin = clerkFrontendApiOrigin();
     if (expectedOrigin) expect(csp).toContain(expectedOrigin);
   });
