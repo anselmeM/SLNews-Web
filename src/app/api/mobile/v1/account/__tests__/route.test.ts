@@ -108,6 +108,17 @@ describe("/api/mobile/v1/account DELETE", () => {
     expect(deleteClerkUser).toHaveBeenCalledWith(USER_ID);
   });
 
+  it("hashes the request-derived rate-limit bucket key", async () => {
+    await DELETE(request());
+
+    // The bucket key goes to the database layer: it must be an opaque digest,
+    // never the raw user id or client-controlled header value.
+    const key = vi.mocked(checkDbRateLimit).mock.calls[0]?.[0];
+    expect(key).toMatch(/^mobile-account-delete:[0-9a-f]{64}$/);
+    expect(key).not.toContain(USER_ID);
+    expect(key).not.toContain("203.0.113.7");
+  });
+
   it("does not touch Clerk when the row delete fails", async () => {
     vi.mocked(db.$transaction).mockRejectedValue(new Error("db down"));
 
