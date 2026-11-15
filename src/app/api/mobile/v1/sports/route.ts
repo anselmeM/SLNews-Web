@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -8,13 +8,57 @@ const KEY = process.env.THESPORTSDB_KEY ?? "123";
 const BASE =
   process.env.THESPORTSDB_BASE ?? "https://www.thesportsdb.com/api/v1/json";
 
-const LEAGUES = [
+type LeagueConfig = {
+  id: string;
+  label: string;
+  table: boolean;
+  season: string;
+  /** Section label shared by several competitions in the app. */
+  group?: string;
+};
+
+const LEAGUES: readonly LeagueConfig[] = [
   { id: "4387", label: "NBA", table: true, season: "2026-2027" },
   { id: "4328", label: "Premier League", table: true, season: "2026-2027" },
   { id: "4391", label: "NFL", table: false, season: "2026" },
   { id: "4380", label: "NHL", table: false, season: "2026-2027" },
   { id: "4424", label: "MLB", table: false, season: "2026" },
-] as const;
+  // Europe's four biggest domestic leagues share one section in the app.
+  {
+    id: "4335",
+    label: "La Liga",
+    group: "European Leagues",
+    table: false,
+    season: "2026-2027",
+  },
+  {
+    id: "4332",
+    label: "Serie A",
+    group: "European Leagues",
+    table: false,
+    season: "2026-2027",
+  },
+  {
+    id: "4331",
+    label: "Bundesliga",
+    group: "European Leagues",
+    table: false,
+    season: "2026-2027",
+  },
+  {
+    id: "4334",
+    label: "Ligue 1",
+    group: "European Leagues",
+    table: false,
+    season: "2026-2027",
+  },
+  {
+    id: "4480",
+    label: "UEFA Champions League",
+    table: false,
+    season: "2026-2027",
+  },
+];
 
 type Cached = { at: number; payload: unknown };
 let cache: Cached | null = null;
@@ -102,7 +146,7 @@ async function buildPayload() {
       ]) {
         const body = await fetchJson(path);
         for (const event of (body?.events ?? []) as DbEvent[]) {
-          const game = toGame(event, league.label);
+          const game = toGame(event, league.group ?? league.label);
           if (game) games.push(game);
         }
       }
