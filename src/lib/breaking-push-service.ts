@@ -51,6 +51,9 @@ export async function broadcastBreakingArticle(
         tag: payload.tag,
         actions: payload.actions,
         category: "breaking",
+        // The broadcast topic every reader who enabled breaking news has
+        // subscribed to; phones are not fanned out token-by-token.
+        targets: ["breaking"],
       }
     );
 
