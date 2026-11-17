@@ -6,6 +6,7 @@ import { syncFromScraper } from "@/app/actions/sync-scraper";
 import { sendMorningBriefing } from "@/lib/briefing-service";
 import { syncMarketPrices } from "@/lib/market-sync-service";
 import { processPriceAlerts } from "@/lib/price-alert-service";
+import { broadcastSubjectDigest } from "@/lib/push/subject-alerts";
 import { syncScraperVideos } from "@/lib/video-sync";
 
 vi.mock("@/app/actions/push-actions", () => ({
@@ -16,6 +17,9 @@ vi.mock("@/app/actions/sync-scraper", () => ({ syncFromScraper: vi.fn() }));
 vi.mock("@/lib/briefing-service", () => ({ sendMorningBriefing: vi.fn() }));
 vi.mock("@/lib/market-sync-service", () => ({ syncMarketPrices: vi.fn() }));
 vi.mock("@/lib/price-alert-service", () => ({ processPriceAlerts: vi.fn() }));
+vi.mock("@/lib/push/subject-alerts", () => ({
+  broadcastSubjectDigest: vi.fn(),
+}));
 vi.mock("@/lib/video-sync", () => ({
   syncScraperVideos: vi.fn(),
   VIDEO_SYNC_MAX_DURATION_S: 60,
@@ -48,6 +52,11 @@ beforeEach(() => {
   } as never);
   vi.mocked(sendMorningBriefing).mockResolvedValue({ sent: 0 } as never);
   vi.mocked(push).mockResolvedValue({ sent: 0 } as never);
+  vi.mocked(broadcastSubjectDigest).mockResolvedValue({
+    topics: [],
+    stories: 0,
+    skipped: "below-threshold",
+  } as never);
   videos.mockResolvedValue({
     triggered: true,
     trigger: { status: "success" },
@@ -101,8 +110,11 @@ describe("GET /api/cron/sync", () => {
       "Breaking News",
       "2 new articles on SLNews. Tap to read.",
       "/",
-      { category: "breaking" }
+      // Phones get the broadcast on its FCM topic, not a token fan-out.
+      { category: "breaking", targets: ["breaking"] }
     );
+    // The daily follow digest runs once ingestion succeeded.
+    expect(broadcastSubjectDigest).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the sync green when the video step rejects", async () => {

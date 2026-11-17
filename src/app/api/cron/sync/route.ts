@@ -3,8 +3,10 @@ import { sendPushNotifications } from "@/app/actions/push-actions";
 import { syncWorldNews } from "@/app/actions/sync-news-api";
 import { syncFromScraper } from "@/app/actions/sync-scraper";
 import { sendMorningBriefing } from "@/lib/briefing-service";
+import { reportError } from "@/lib/error-reporting";
 import { syncMarketPrices } from "@/lib/market-sync-service";
 import { processPriceAlerts } from "@/lib/price-alert-service";
+import { broadcastSubjectDigest } from "@/lib/push/subject-alerts";
 import { syncScraperVideos } from "@/lib/video-sync";
 
 // A literal on purpose: Next reads segment config statically, and an imported
@@ -76,8 +78,23 @@ export async function GET(request: Request) {
       "Breaking News",
       `${total} new article${total > 1 ? "s" : ""} on SLNews. Tap to read.`,
       "/",
-      { category: "breaking" }
+      { category: "breaking", targets: ["breaking"] }
     );
+  }
+
+  // Follow digest: one push per busy subject, on that subject's FCM topic, so
+  // readers who follow Politics or Awoko hear about it without the server
+  // knowing who follows what. Best-effort: a digest failure must not fail the
+  // ingestion run.
+  let followDigest: Awaited<ReturnType<typeof broadcastSubjectDigest>> | null =
+    null;
+  if (total > 0) {
+    try {
+      followDigest = await broadcastSubjectDigest();
+    } catch (error) {
+      reportError(error, { where: "cron/sync (follow digest)" });
+      followDigest = { topics: [], stories: 0, skipped: "error" };
+    }
   }
 
   return NextResponse.json({
@@ -94,5 +111,6 @@ export async function GET(request: Request) {
     },
     count: total,
     push: pushResult,
+    followDigest,
   });
 }

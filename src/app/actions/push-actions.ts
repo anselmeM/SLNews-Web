@@ -7,12 +7,27 @@ import { db } from "@/lib/db";
 import {
   isFcmConfigured,
   sendNativePush,
+  sendTopicPush,
   type NativeSendResult,
 } from "@/lib/push/fcm";
+import { topicForTarget } from "@/lib/push/topics";
 
 export interface PushNotificationOptions {
   userId?: string;
   userIds?: string[];
+  /**
+   * Follow ids this alert is about (`topic:politics`, `publisher:awoko`,
+   * `team:lal`). When set, delivery goes to those FCM topics and the device
+   * fan-out is skipped — the app has already subscribed the right devices.
+   * Leave unset for account-scoped alerts.
+   */
+  targets?: string[];
+  /**
+   * Skips the browser (VAPID) channel. Set it for subject-targeted alerts:
+   * browser subscriptions are per device and carry no follows, so fanning a
+   * targeted alert out to them would reach every reader, not the followers.
+   */
+  skipWebPush?: boolean;
   tag?: string;
   icon?: string;
   badge?: string;
@@ -29,6 +44,8 @@ export interface PushResult {
   sent: number;
   /** Native deliveries, present only when Firebase is configured. */
   native?: NativeSendResult;
+  /** Per-topic native deliveries, present for targeted alerts. */
+  nativeTopics?: Array<{ topic: string; ok: boolean }>;
   error?: string;
 }
 
@@ -77,7 +94,11 @@ export async function sendPushNotifications(
   let sent = 0;
   let error: string | undefined;
 
-  if (vapidPublic && vapidPrivate) {
+  // Browser subscriptions carry no follow information, so a subject-targeted
+  // alert can only be filtered on phones. Skipping web push there is the
+  // difference between "the readers who follow Awoko" and "every reader who
+  // ever enabled browser notifications", six times a day.
+  if (vapidPublic && vapidPrivate && !opts.skipWebPush) {
     webpush.setVapidDetails(
       `mailto:${contactEmail}`,
       vapidPublic,
@@ -128,19 +149,39 @@ export async function sendPushNotifications(
   }
 
   // Phones: the same alert, through Firebase. Inert without a service account.
+  //
+  // A targeted alert goes out on FCM **topics** rather than the device fan-out:
+  // the app subscribes `slnews_<follow id>` per follow, so one send reaches
+  // exactly the readers who follow that subject, without the server having to
+  // know who they are. Account-scoped alerts (price alerts, briefing) still fan
+  // out to the user's devices because they are not subject-based.
   let native: NativeSendResult | undefined;
+  let nativeTopics: Array<{ topic: string; ok: boolean }> | undefined;
   if (isFcmConfigured()) {
-    native = await sendNativePush(
-      {
-        title,
-        body,
-        url,
-        category: opts.category,
-        data: { id: opts.id || randomUUID(), ...opts.data },
-      },
-      { userId: opts.userId, userIds: opts.userIds }
+    const message = {
+      title,
+      body,
+      url,
+      category: opts.category,
+      data: { id: opts.id || randomUUID(), ...opts.data },
+    };
+    const targets = Array.from(
+      new Set((opts.targets ?? []).map((target) => target.trim()).filter(Boolean))
     );
+    if (targets.length > 0) {
+      nativeTopics = [];
+      for (const target of targets) {
+        const topic = topicForTarget(target);
+        const result = await sendTopicPush(topic, message);
+        nativeTopics.push({ topic: result.topic, ok: result.ok });
+      }
+    } else {
+      native = await sendNativePush(message, {
+        userId: opts.userId,
+        userIds: opts.userIds,
+      });
+    }
   }
 
-  return { sent, native, ...(error ? { error } : {}) };
+  return { sent, native, nativeTopics, ...(error ? { error } : {}) };
 }
