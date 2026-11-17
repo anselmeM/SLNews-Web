@@ -127,3 +127,46 @@ const PUBLISHER_NAMES: Record<string, string> = {
 export function publisherNameForId(id: string): string | null {
   return PUBLISHER_NAMES[id] ?? null;
 }
+
+/** Case/punctuation-insensitive key for matching an outlet name. */
+function normaliseOutletName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Publisher id for the scraper's own outlet name ("Concord Times").
+ *
+ * Preferred over host inference, which cannot know that the app's
+ * `concordtimes` id corresponds to the scraper's
+ * `sierraleoneconcordtimes.com` feed. Built from [PUBLISHER_NAMES] so the two
+ * lists cannot drift apart.
+ */
+const PUBLISHER_ID_BY_SOURCE: Record<string, string> = Object.fromEntries(
+  Object.entries(PUBLISHER_NAMES).map(([id, name]) => [
+    normaliseOutletName(name),
+    id,
+  ])
+);
+
+// Names the outlets use about themselves that differ from the app's label.
+const SOURCE_ALIASES: Record<string, string> = {
+  "sierra leone telegraph": "sltelegraph",
+  "the sierra leone telegraph": "sltelegraph",
+  "concord times newspaper": "concordtimes",
+  "sierra leone concord times": "concordtimes",
+  "politico sl": "politicosl",
+};
+
+export function publisherTargetForSource(
+  source: string | null | undefined
+): string | null {
+  if (!source || !source.trim()) return null;
+  const key = normaliseOutletName(source);
+  const id = PUBLISHER_ID_BY_SOURCE[key] ?? SOURCE_ALIASES[key];
+  return id ? `publisher:${id}` : null;
+}

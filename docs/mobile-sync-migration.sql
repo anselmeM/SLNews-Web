@@ -173,3 +173,10 @@ CREATE INDEX IF NOT EXISTS "Sponsorship_placement_active_startsAt_endsAt_idx"
 -- Sponsorship counters (additive; measured by the public event endpoint).
 ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "impressions" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "taps" INTEGER NOT NULL DEFAULT 0;
+
+-- Article.publisher (additive): the outlet a scraped story came from. The follow
+-- digest addresses newspapers by publisher id; host inference misses outlets
+-- whose feed host differs from the app's registry (Concord Times: the scraper
+-- reads sierraleoneconcordtimes.com, the registry maps concordtimes.net), so
+-- the scraper's own source name is stored and preferred.
+ALTER TABLE "Article" ADD COLUMN IF NOT EXISTS "publisher" TEXT;

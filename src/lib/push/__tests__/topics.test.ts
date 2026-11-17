@@ -3,6 +3,7 @@ import {
   BREAKING_TOPIC,
   categoryTargetForName,
   publisherNameForId,
+  publisherTargetForSource,
   publisherTargetForUrl,
   topicForTarget,
 } from "../topics";
@@ -84,5 +85,21 @@ describe("publisherTargetForUrl", () => {
   it("labels a publisher for the digest copy", () => {
     expect(publisherNameForId("awoko")).toBe("Awoko Newspaper");
     expect(publisherNameForId("nope")).toBeNull();
+  });
+
+  it("maps the scraper's outlet names to publisher ids", () => {
+    expect(publisherTargetForSource("The Sierra Leone Telegraph")).toBe(
+      "publisher:sltelegraph"
+    );
+    expect(publisherTargetForSource("Concord Times")).toBe(
+      "publisher:concordtimes"
+    );
+    expect(publisherTargetForSource("politico sl")).toBe(
+      "publisher:politicosl"
+    );
+    // Unknown outlets are skipped so a digest is never published to a topic
+    // nobody could have subscribed to.
+    expect(publisherTargetForSource("Some New Blog")).toBeNull();
+    expect(publisherTargetForSource(null)).toBeNull();
   });
 });
