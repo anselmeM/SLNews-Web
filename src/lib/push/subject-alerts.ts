@@ -23,6 +23,7 @@ import { sendPushNotifications } from "@/app/actions/push-actions";
 import { db } from "@/lib/db";
 import {
   categoryTargetForName,
+  publisherTargetForSource,
   publisherTargetForUrl,
   publisherNameForId,
 } from "@/lib/push/topics";
@@ -48,6 +49,8 @@ export interface SubjectGroup {
 
 interface SubjectArticle {
   sourceUrl: string | null;
+  /** Outlet name from the scraper; null for rows imported before the column. */
+  publisher: string | null;
   categories: string[];
 }
 
@@ -77,7 +80,11 @@ export function groupSubjectTargets(
       const target = categoryTargetForName(name);
       if (target) bump(target, name.trim(), false);
     }
-    const publisher = publisherTargetForUrl(article.sourceUrl);
+    // The outlet name the scraper recorded wins: host inference cannot map
+    // every feed host to the app's publisher id. Older rows fall back to it.
+    const publisher =
+      publisherTargetForSource(article.publisher) ??
+      publisherTargetForUrl(article.sourceUrl);
     if (publisher) {
       const id = publisher.slice("publisher:".length);
       bump(publisher, publisherNameForId(id) ?? id, true);
@@ -107,6 +114,7 @@ export async function broadcastSubjectDigest(
     },
     select: {
       sourceUrl: true,
+      publisher: true,
       categories: { select: { name: true } },
     },
     take: 500,
@@ -114,6 +122,7 @@ export async function broadcastSubjectDigest(
 
   const articles: SubjectArticle[] = rows.map((row) => ({
     sourceUrl: row.sourceUrl,
+    publisher: row.publisher,
     categories: row.categories.map((category) => category.name),
   }));
 

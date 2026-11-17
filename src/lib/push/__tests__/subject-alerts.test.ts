@@ -19,8 +19,19 @@ const {
   SUBJECT_ALERT_WINDOW_MS,
 } = await import("../subject-alerts");
 
-function article(sourceUrl: string | null, ...categories: string[]) {
-  return { sourceUrl, categories };
+function article(
+  sourceUrl: string | null,
+  ...categories: string[]
+): { sourceUrl: string | null; publisher: string | null; categories: string[] } {
+  return { sourceUrl, publisher: null, categories };
+}
+
+function sourcedArticle(
+  publisher: string,
+  sourceUrl: string | null,
+  ...categories: string[]
+) {
+  return { sourceUrl, publisher, categories };
 }
 
 describe("groupSubjectTargets", () => {
@@ -58,6 +69,30 @@ describe("groupSubjectTargets", () => {
         article("https://example.com/3", "Business"),
       ]).map((group) => group.target)
     ).toEqual(["topic:business"]);
+  });
+
+  it("prefers the scraper's outlet name over the URL host", () => {
+    // The scraper's Concord Times feed host is sierraleoneconcordtimes.com,
+    // which the app's registry (concordtimes.net) cannot resolve; the name can.
+    const groups = groupSubjectTargets([
+      sourcedArticle("Concord Times", "https://sierraleoneconcordtimes.com/1", "Politics"),
+      sourcedArticle("Concord Times", "https://sierraleoneconcordtimes.com/2", "Politics"),
+      sourcedArticle("Concord Times", "https://sierraleoneconcordtimes.com/3", "Politics"),
+    ]);
+
+    expect(groups.map((group) => group.target)).toContain(
+      "publisher:concordtimes"
+    );
+  });
+
+  it("falls back to the host when a row predates the source column", () => {
+    const groups = groupSubjectTargets([
+      article("https://awoko.org/1", "Politics"),
+      article("https://awoko.org/2", "Politics"),
+      article("https://awoko.org/3", "Politics"),
+    ]);
+
+    expect(groups.map((group) => group.target)).toContain("publisher:awoko");
   });
 
   it("never groups the home feed's Top stories", () => {
@@ -100,9 +135,21 @@ describe("broadcastSubjectDigest", () => {
 
   it("queries the last 24 hours and pushes one alert per subject topic", async () => {
     findMany.mockResolvedValue([
-      { sourceUrl: "https://awoko.org/1", categories: [{ name: "Politics" }] },
-      { sourceUrl: "https://awoko.org/2", categories: [{ name: "Politics" }] },
-      { sourceUrl: "https://awoko.org/3", categories: [{ name: "Politics" }] },
+      {
+        sourceUrl: "https://awoko.org/1",
+        source: null,
+        categories: [{ name: "Politics" }],
+      },
+      {
+        sourceUrl: "https://awoko.org/2",
+        source: null,
+        categories: [{ name: "Politics" }],
+      },
+      {
+        sourceUrl: "https://awoko.org/3",
+        source: null,
+        categories: [{ name: "Politics" }],
+      },
     ]);
 
     const result = await broadcastSubjectDigest(
@@ -136,7 +183,11 @@ describe("broadcastSubjectDigest", () => {
 
   it("reports a below-threshold run without pushing", async () => {
     findMany.mockResolvedValue([
-      { sourceUrl: "https://awoko.org/1", categories: [{ name: "Politics" }] },
+      {
+        sourceUrl: "https://awoko.org/1",
+        source: null,
+        categories: [{ name: "Politics" }],
+      },
     ]);
 
     const result = await broadcastSubjectDigest();

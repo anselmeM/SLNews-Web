@@ -177,6 +177,11 @@ export async function syncFromScraper() {
         // Rows that predate the column pick up their link on the next scrape,
         // which is also how the existing archive backfills itself.
         if (!existing.sourceUrl) updateData.sourceUrl = link;
+        // Same backfill for the outlet name: a row scraped before `source`
+        // existed learns it on the next run.
+        if (!existing.publisher && a.source?.trim()) {
+          updateData.publisher = a.source.trim();
+        }
 
         if (Object.keys(updateData).length > 0) {
           await db.article.update({
@@ -195,6 +200,7 @@ export async function syncFromScraper() {
           content,
           imageUrl: a.imageUrl?.trim() || "/globe.svg",
           sourceUrl: link,
+          publisher: a.source?.trim() || null,
           published: true,
           status: "PUBLISHED",
           province: null,

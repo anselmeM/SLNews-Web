@@ -109,6 +109,12 @@ model Article {
   /// same link are exactly the duplicate this column exists to prevent (Postgres
   /// permits many NULLs in a unique index).
   sourceUrl     String?        @unique
+  /// Outlet a scraped story came from, as the scraper names it ("Concord
+  /// Times"). Named `publisher` because the public article shape already uses
+  /// `source` for the author's display name. Nullable: rows imported before
+  /// this column existed (and editorials) have none, so the follow digest falls
+  /// back to the URL's host.
+  publisher     String?
   published     Boolean        @default(false)
   status        Status         @default(DRAFT)
   province      String?
