@@ -60,6 +60,16 @@ describe("groupSubjectTargets", () => {
     ).toEqual(["topic:business"]);
   });
 
+  it("never groups the home feed's Top stories", () => {
+    expect(
+      groupSubjectTargets([
+        article("https://example.com/1", "Top stories"),
+        article("https://example.com/2", "Top stories"),
+        article("https://example.com/3", "Top stories"),
+      ])
+    ).toEqual([]);
+  });
+
   it(`caps a run at ${SUBJECT_ALERT_MAX_TOPICS} subjects, busiest first`, () => {
     const subjects = ["Politics", "Business", "Sports", "Tech", "Health", "Mining", "World"];
     const groups = groupSubjectTargets(
@@ -112,6 +122,14 @@ describe("broadcastSubjectDigest", () => {
     );
     expect(targets).toContainEqual(["topic:politics"]);
     expect(targets).toContainEqual(["publisher:awoko"]);
+
+    // Targeted alerts must not fan out to browser subscriptions, which carry no
+    // follow information, and must use kinds the app's history understands.
+    for (const call of sendPushNotifications.mock.calls) {
+      const options = call[3] as { skipWebPush?: boolean; category?: string };
+      expect(options.skipWebPush).toBe(true);
+      expect(["publisher", "system"]).toContain(options.category);
+    }
     expect(result.topics).toHaveLength(2);
     expect(result.stories).toBe(3);
   });

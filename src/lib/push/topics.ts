@@ -71,14 +71,39 @@ export function publisherTargetForUrl(
   return match ? `publisher:${PUBLISHER_BY_HOST[match]}` : null;
 }
 
+/**
+ * Category display name -> the app's category id.
+ *
+ * The app's follow ids are `topic:<NewsCategory.id>` (`topic:cars`), not a slug
+ * of the display name, so "Cars and Vehicles" must resolve to `cars` — a plain
+ * slug would publish to `topic:cars-and-vehicles`, which nobody subscribes to.
+ * Names not listed here fall back to a slug, which is correct for the
+ * single-word categories (`Politics`, `Business`, ...).
+ */
+const CATEGORY_ID_BY_NAME: Record<string, string> = {
+  "cars and vehicles": "cars",
+  cars: "cars",
+  "top stories": "top",
+  top: "top",
+  "world news": "world",
+  world: "world",
+};
+
 /** `Politics` -> `topic:politics` (the app's category follow id). */
 export function categoryTargetForName(name: string): string | null {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug ? `topic:${slug}` : null;
+  const normalised = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!normalised) return null;
+  const known = CATEGORY_ID_BY_NAME[normalised];
+  const slug =
+    known ??
+    normalised
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  if (!slug) return null;
+  // "Top stories" is the home feed every reader already sees, and the app does
+  // not offer it as a followable topic — publishing there would reach nobody.
+  if (slug === "top") return null;
+  return `topic:${slug}`;
 }
 
 /**

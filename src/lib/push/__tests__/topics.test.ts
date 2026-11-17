@@ -33,11 +33,22 @@ describe("topicForTarget", () => {
 });
 
 describe("categoryTargetForName", () => {
-  it("slugifies the category the same way the app does", () => {
+  it("uses the app's category id, not a slug of the display name", () => {
     expect(categoryTargetForName("Politics")).toBe("topic:politics");
-    expect(categoryTargetForName("Cars and Vehicles")).toBe(
-      "topic:cars-and-vehicles"
-    );
+    // The app's id for this category is `cars`; a plain slug would publish to
+    // `topic:cars-and-vehicles`, which nobody subscribes to.
+    expect(categoryTargetForName("Cars and Vehicles")).toBe("topic:cars");
+    expect(categoryTargetForName("  cars  ")).toBe("topic:cars");
+    expect(categoryTargetForName("World News")).toBe("topic:world");
+  });
+
+  it("never targets the home feed", () => {
+    expect(categoryTargetForName("Top stories")).toBeNull();
+    expect(categoryTargetForName("top")).toBeNull();
+  });
+
+  it("falls back to a slug for unknown single-word names", () => {
+    expect(categoryTargetForName("Mining")).toBe("topic:mining");
     expect(categoryTargetForName("  ")).toBeNull();
   });
 });

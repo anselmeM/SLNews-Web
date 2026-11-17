@@ -22,6 +22,12 @@ export interface PushNotificationOptions {
    * Leave unset for account-scoped alerts.
    */
   targets?: string[];
+  /**
+   * Skips the browser (VAPID) channel. Set it for subject-targeted alerts:
+   * browser subscriptions are per device and carry no follows, so fanning a
+   * targeted alert out to them would reach every reader, not the followers.
+   */
+  skipWebPush?: boolean;
   tag?: string;
   icon?: string;
   badge?: string;
@@ -88,7 +94,11 @@ export async function sendPushNotifications(
   let sent = 0;
   let error: string | undefined;
 
-  if (vapidPublic && vapidPrivate) {
+  // Browser subscriptions carry no follow information, so a subject-targeted
+  // alert can only be filtered on phones. Skipping web push there is the
+  // difference between "the readers who follow Awoko" and "every reader who
+  // ever enabled browser notifications", six times a day.
+  if (vapidPublic && vapidPrivate && !opts.skipWebPush) {
     webpush.setVapidDetails(
       `mailto:${contactEmail}`,
       vapidPublic,

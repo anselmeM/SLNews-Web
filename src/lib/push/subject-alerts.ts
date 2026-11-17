@@ -127,8 +127,11 @@ export async function broadcastSubjectDigest(
       group.count === 1 ? "story" : "stories"
     } you follow. Tap to read.`;
     const result = await sendPushNotifications(title, body, "/", {
-      category: group.isPublisher ? "source" : "topic",
+      // The app's history kinds are breaking/team/publisher/score/system;
+      // a category digest has no dedicated kind, so it lands as `system`.
+      category: group.isPublisher ? "publisher" : "system",
       targets: [group.target],
+      skipWebPush: true,
       data: { target: group.target },
     });
     const delivered =
