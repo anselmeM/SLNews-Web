@@ -165,6 +165,23 @@ export async function broadcastSubjectDigest(
   }));
 
   const groups = groupSubjectTargets(articles);
+
+  // One digest per UTC day. The claim is taken only when there is something to
+  // send, so a quiet day can be re-evaluated by a later run without sending; a
+  // run that already sent returns early instead of pushing the same subjects
+  // twice (cron retries and manual trigger are both at-least-once).
+  const day = now.toISOString().slice(0, 10);
+  if (groups.length > 0) {
+    try {
+      await db.digestRun.create({ data: { day, topics: groups.length } });
+    } catch (error) {
+      if ((error as { code?: string }).code === "P2002") {
+        return { topics: [], stories: articles.length, skipped: "already-ran" };
+      }
+      throw error;
+    }
+  }
+
   const topics: Array<{ target: string; ok: boolean; count: number }> = [];
   for (const group of groups) {
     const title =

@@ -236,12 +236,23 @@ model ArticleReaction {
   userId    String
   emoji     String
   createdAt DateTime @default(now())
-
   article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([articleId, userId, emoji])
   @@index([articleId])
+}
+
+/// One follow digest per UTC day.
+///
+/// The cron endpoint is at-least-once: Vercel retries, and an operator can
+/// trigger it manually. `day` (YYYY-MM-DD) is the primary key, so the insert
+/// itself is the claim — a second run that finds something to send hits the
+/// unique constraint and reports `already-ran` instead of pushing twice.
+model DigestRun {
+  day       String   @id
+  topics    Int      @default(0)
+  createdAt DateTime @default(now())
 }
 
 model RateLimit {
