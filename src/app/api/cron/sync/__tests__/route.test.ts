@@ -127,4 +127,24 @@ describe("GET /api/cron/sync", () => {
     expect(body.success).toBe(true);
     expect(body.videos).toMatchObject({ count: 0, readError: "rejected" });
   });
+
+  it("runs the follow digest even when ingestion produced nothing", async () => {
+    // The 2026-11-18 run: Render's cold start exceeded the scraper timeout, so
+    // total was 0 and the digest was skipped entirely — it summarises the last
+    // 24 hours, which has nothing to do with today's ingestion.
+    vi.mocked(syncFromScraper).mockResolvedValue({
+      success: false,
+      count: 0,
+    } as never);
+    vi.mocked(syncWorldNews).mockResolvedValue({
+      success: true,
+      count: 0,
+    } as never);
+
+    const body = await (await GET(get("test-secret"))).json();
+
+    expect(body.count).toBe(0);
+    expect(broadcastSubjectDigest).toHaveBeenCalledTimes(1);
+    expect(body.followDigest).toMatchObject({ skipped: "below-threshold" });
+  });
 });
