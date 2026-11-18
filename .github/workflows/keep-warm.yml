@@ -1,12 +1,17 @@
 name: Keep-warm ping
 
-# Pings the production health endpoint every 5 minutes, around the clock, so the
-# serverless function and the Neon Postgres compute never cold-start (a cold
-# first request to `/` was measured at ~6s TTFB).
+# Warm-up pings every 5 minutes, around the clock, for both production hosts:
 #
-# The schedule is skipped until the `PRODUCTION_URL` repository variable is set
-# (Settings -> Secrets and variables -> Actions -> Variables). Use
-# workflow_dispatch to run it manually.
+# - the Next.js app, so the serverless function and the Neon Postgres compute
+#   never cold-start (a cold first request to `/` was measured at ~6s TTFB);
+# - the Python/Node scraper on Render, whose free instance spins down and has
+#   been measured taking over 20s to boot. On 2026-11-18 that boot exceeded the
+#   sync client's old 20s timeout and the 06:30 ingestion run produced nothing.
+#
+# The Vercel ping is skipped until the `PRODUCTION_URL` repository variable is
+# set (Settings -> Secrets and variables -> Actions -> Variables); the Render
+# ping only needs `SCRAPER_URL`, defaulting to the known public host.
+# Use workflow_dispatch to run it manually.
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -14,11 +19,23 @@ on:
 
 jobs:
   ping:
-    if: ${{ vars.PRODUCTION_URL != '' }}
     runs-on: ubuntu-latest
+    env:
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+      SCRAPER_URL: ${{ vars.SCRAPER_URL || 'https://slnewsapiscapper.onrender.com' }}
     steps:
-      - name: Ping /api/health
+      - name: Ping the app health endpoint
+        if: env.PRODUCTION_URL != ''
         run: |
-          curl -fsS --max-time 20 --retry 2 "${{ vars.PRODUCTION_URL }}/api/health" \
-            && echo "Warm-up ping OK" \
-            || (echo "Warm-up ping failed" >&2 && exit 1)
+          curl -fsS --max-time 20 --retry 2 "$PRODUCTION_URL/api/health" \
+            && echo "App warm-up ping OK" \
+            || (echo "App warm-up ping failed" >&2 && exit 1)
+
+      # A failed warm-up is not a deployment failure: the next reader request
+      # still works, just slowly. Warn instead of failing the job so a Render
+      # outage does not paint every five-minute run red.
+      - name: Ping the scraper health endpoint
+        run: |
+          curl -fsS --max-time 60 --retry 2 "$SCRAPER_URL/api/health" \
+            && echo "Scraper warm-up ping OK" \
+            || echo "::warning::scraper warm-up ping failed — the next request will pay the cold start"
