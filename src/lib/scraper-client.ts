@@ -64,9 +64,15 @@ export type ScraperVideo = {
  * - the news sync is a bulk cron job with no reader waiting, and its payload is
  *   legitimately slower;
  * - the sync trigger waits on the scraper's own ingestion run.
+ *
+ * The news budget is 45s because Render's cold boot has been observed over 20s
+ * in production: on 2026-11-18 the 06:30 cron timed out at the old 20s limit and
+ * ingested nothing, which is why the sync cron now also warms the scraper ahead
+ * of time. A warm instance answers in well under a second, so the larger bound
+ * only ever applies to the boot case it exists for.
  */
 export const VIDEO_REQUEST_TIMEOUT_MS = 10_000;
-export const NEWS_REQUEST_TIMEOUT_MS = 20_000;
+export const NEWS_REQUEST_TIMEOUT_MS = 45_000;
 export const SYNC_REQUEST_TIMEOUT_MS = 60_000;
 
 /** Raised when the scraper host cannot be reached at the network level. */
