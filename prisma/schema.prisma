@@ -115,6 +115,9 @@ model Article {
   /// this column existed (and editorials) have none, so the follow digest falls
   /// back to the URL's host.
   publisher     String?
+  /// Follow ids (`team:lal`, `league:spl`) the story is about, as the scraper
+  /// derives them from the headline and summary. Empty when no subject matched.
+  teams         String[]       @default([])
   published     Boolean        @default(false)
   status        Status         @default(DRAFT)
   province      String?

@@ -182,6 +182,14 @@ export async function syncFromScraper() {
         if (!existing.publisher && a.source?.trim()) {
           updateData.publisher = a.source.trim();
         }
+        // And for the subject tags: a row stored before `teams` existed picks
+        // them up on the next scrape, so the archive catches up without a
+        // backfill job.
+        const scraperTeams = Array.isArray(a.teams) ? a.teams : [];
+        const existingTeams = Array.isArray(existing.teams) ? existing.teams : [];
+        if (existingTeams.length === 0 && scraperTeams.length > 0) {
+          updateData.teams = scraperTeams;
+        }
 
         if (Object.keys(updateData).length > 0) {
           await db.article.update({
@@ -201,6 +209,7 @@ export async function syncFromScraper() {
           imageUrl: a.imageUrl?.trim() || "/globe.svg",
           sourceUrl: link,
           publisher: a.source?.trim() || null,
+          teams: Array.isArray(a.teams) ? a.teams : [],
           published: true,
           status: "PUBLISHED",
           province: null,

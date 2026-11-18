@@ -31,54 +31,80 @@ import {
 /** The daily digest window. Cron runs once a day, so windows tile exactly. */
 export const SUBJECT_ALERT_WINDOW_MS = 24 * 60 * 60_000;
 
-/** One story is not a digest; this is the noise floor. */
+/** One story is not a digest; this is the noise floor for categories/wires. */
 export const SUBJECT_ALERT_MIN_STORIES = 3;
+
+/**
+ * A single story about a followed team or league is the point of following it,
+ * so subject tags clear a lower bar than the general news categories.
+ */
+export const SUBJECT_ALERT_MIN_TEAM_STORIES = 1;
 
 /** Upper bound on pushes per run, since topics are global. */
 export const SUBJECT_ALERT_MAX_TOPICS = 6;
 
+export type SubjectKind = "category" | "publisher" | "team";
+
 export interface SubjectGroup {
-  /** Follow id, e.g. `topic:politics` or `publisher:awoko`. */
+  /** Follow id, e.g. `topic:politics`, `publisher:awoko` or `team:lal`. */
   target: string;
   /** Human label for the message, e.g. "Politics" or "Awoko Newspaper". */
   label: string;
   count: number;
-  /** True for a newspaper, false for a category. */
-  isPublisher: boolean;
+  kind: SubjectKind;
 }
 
 interface SubjectArticle {
   sourceUrl: string | null;
   /** Outlet name from the scraper; null for rows imported before the column. */
   publisher: string | null;
+  /** Follow ids the scraper derived for the story (`team:lal`). */
+  teams: string[];
   categories: string[];
+}
+
+/**
+ * Reads a follow id as a label: `team:leone-stars` -> "Leone Stars",
+ * `league:spl` -> "SPL".
+ *
+ * The web app has no team catalogue, so the id is the only source. Short,
+ * un-hyphenated slugs are acronyms in this vocabulary (NBA, EPL, SPL, AFCON);
+ * longer ones are names.
+ */
+export function labelForSubject(target: string): string {
+  const slug = target.slice(target.indexOf(":") + 1);
+  const words = slug.split("-").filter(Boolean);
+  if (words.length === 1 && slug.length <= 5) return slug.toUpperCase();
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /**
  * Counts articles per follow target and returns the subjects worth alerting.
  *
- * Pure on purpose: the threshold, the cap and the merge of a story's category
- * and publisher targets are the rules most likely to be wrong, and they can be
- * tested without a database.
+ * Pure on purpose: the thresholds, the cap and the merge of a story's category,
+ * publisher and team targets are the rules most likely to be wrong, and they
+ * can be tested without a database.
  */
 export function groupSubjectTargets(
   articles: readonly SubjectArticle[]
 ): SubjectGroup[] {
   const groups = new Map<string, SubjectGroup>();
 
-  const bump = (target: string, label: string, isPublisher: boolean): void => {
+  const bump = (target: string, label: string, kind: SubjectKind): void => {
     const existing = groups.get(target);
     if (existing) {
       existing.count += 1;
       return;
     }
-    groups.set(target, { target, label, count: 1, isPublisher });
+    groups.set(target, { target, label, count: 1, kind });
   };
 
   for (const article of articles) {
     for (const name of article.categories) {
       const target = categoryTargetForName(name);
-      if (target) bump(target, name.trim(), false);
+      if (target) bump(target, name.trim(), "category");
     }
     // The outlet name the scraper recorded wins: host inference cannot map
     // every feed host to the app's publisher id. Older rows fall back to it.
@@ -87,12 +113,22 @@ export function groupSubjectTargets(
       publisherTargetForUrl(article.sourceUrl);
     if (publisher) {
       const id = publisher.slice("publisher:".length);
-      bump(publisher, publisherNameForId(id) ?? id, true);
+      bump(publisher, publisherNameForId(id) ?? id, "publisher");
+    }
+    for (const target of article.teams) {
+      if (!target.startsWith("team:") && !target.startsWith("league:")) continue;
+      bump(target, labelForSubject(target), "team");
     }
   }
 
   return Array.from(groups.values())
-    .filter((group) => group.count >= SUBJECT_ALERT_MIN_STORIES)
+    .filter(
+      (group) =>
+        group.count >=
+        (group.kind === "team"
+          ? SUBJECT_ALERT_MIN_TEAM_STORIES
+          : SUBJECT_ALERT_MIN_STORIES)
+    )
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     .slice(0, SUBJECT_ALERT_MAX_TOPICS);
 }
@@ -115,6 +151,7 @@ export async function broadcastSubjectDigest(
     select: {
       sourceUrl: true,
       publisher: true,
+      teams: true,
       categories: { select: { name: true } },
     },
     take: 500,
@@ -123,22 +160,29 @@ export async function broadcastSubjectDigest(
   const articles: SubjectArticle[] = rows.map((row) => ({
     sourceUrl: row.sourceUrl,
     publisher: row.publisher,
+    teams: row.teams,
     categories: row.categories.map((category) => category.name),
   }));
 
   const groups = groupSubjectTargets(articles);
   const topics: Array<{ target: string; ok: boolean; count: number }> = [];
   for (const group of groups) {
-    const title = group.isPublisher
-      ? `New from ${group.label}`
-      : `${group.label} update`;
+    const title =
+      group.kind === "publisher"
+        ? `New from ${group.label}`
+        : `${group.label} update`;
     const body = `${group.count} new ${
       group.count === 1 ? "story" : "stories"
     } you follow. Tap to read.`;
     const result = await sendPushNotifications(title, body, "/", {
-      // The app's history kinds are breaking/team/publisher/score/system;
-      // a category digest has no dedicated kind, so it lands as `system`.
-      category: group.isPublisher ? "publisher" : "system",
+      // The app's history kinds are breaking/team/publisher/score/system; a
+      // category digest has no dedicated kind, so it lands as `system`.
+      category:
+        group.kind === "publisher"
+          ? "publisher"
+          : group.kind === "team"
+            ? "team"
+            : "system",
       targets: [group.target],
       skipWebPush: true,
       data: { target: group.target },

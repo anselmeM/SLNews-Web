@@ -180,3 +180,7 @@ ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "taps" INTEGER NOT NULL DEFAU
 -- reads sierraleoneconcordtimes.com, the registry maps concordtimes.net), so
 -- the scraper's own source name is stored and preferred.
 ALTER TABLE "Article" ADD COLUMN IF NOT EXISTS "publisher" TEXT;
+
+-- Article.teams (additive): follow ids the scraper derived for a story, e.g.
+-- {team:lal,league:nba}. The follow digest addresses readers on these topics.
+ALTER TABLE "Article" ADD COLUMN IF NOT EXISTS "teams" TEXT[] NOT NULL DEFAULT '{}';

@@ -14,6 +14,7 @@ vi.mock("@/app/actions/push-actions", () => ({
 const {
   broadcastSubjectDigest,
   groupSubjectTargets,
+  labelForSubject,
   SUBJECT_ALERT_MAX_TOPICS,
   SUBJECT_ALERT_MIN_STORIES,
   SUBJECT_ALERT_WINDOW_MS,
@@ -22,8 +23,17 @@ const {
 function article(
   sourceUrl: string | null,
   ...categories: string[]
-): { sourceUrl: string | null; publisher: string | null; categories: string[] } {
-  return { sourceUrl, publisher: null, categories };
+): {
+  sourceUrl: string | null;
+  publisher: string | null;
+  teams: string[];
+  categories: string[];
+} {
+  return { sourceUrl, publisher: null, teams: [], categories };
+}
+
+function teamArticle(teams: string[], ...categories: string[]) {
+  return { sourceUrl: null, publisher: null, teams, categories };
 }
 
 function sourcedArticle(
@@ -31,7 +41,7 @@ function sourcedArticle(
   sourceUrl: string | null,
   ...categories: string[]
 ) {
-  return { sourceUrl, publisher, categories };
+  return { sourceUrl, publisher, teams: [], categories };
 }
 
 describe("groupSubjectTargets", () => {
@@ -44,10 +54,10 @@ describe("groupSubjectTargets", () => {
 
     const politics = groups.find((group) => group.target === "topic:politics");
     const awoko = groups.find((group) => group.target === "publisher:awoko");
-    expect(politics).toMatchObject({ count: 3, isPublisher: false });
+    expect(politics).toMatchObject({ count: 3, kind: "category" });
     expect(awoko).toMatchObject({
       count: 3,
-      isPublisher: true,
+      kind: "publisher",
       label: "Awoko Newspaper",
     });
   });
@@ -105,6 +115,31 @@ describe("groupSubjectTargets", () => {
     ).toEqual([]);
   });
 
+  it("alerts on a single story about a followed team", () => {
+    // Teams clear a lower bar than categories: one story about Bo Rangers is
+    // exactly what a follower wants to hear about.
+    expect(groupSubjectTargets([teamArticle(["team:bo-rangers"])])).toEqual([
+      {
+        target: "team:bo-rangers",
+        label: "Bo Rangers",
+        count: 1,
+        kind: "team",
+      },
+    ]);
+  });
+
+  it("labels team and league ids for the message copy", () => {
+    expect(labelForSubject("team:leone-stars")).toBe("Leone Stars");
+    expect(labelForSubject("league:spl")).toBe("SPL");
+    expect(labelForSubject("league:la-liga")).toBe("La Liga");
+    expect(labelForSubject("team:lal")).toBe("LAL");
+  });
+
+  it("ignores tags outside the team and league namespaces", () => {
+    expect(groupSubjectTargets([teamArticle(["topic:politics"])])).toEqual([]);
+    expect(groupSubjectTargets([teamArticle(["publisher:awoko"])])).toEqual([]);
+  });
+
   it(`caps a run at ${SUBJECT_ALERT_MAX_TOPICS} subjects, busiest first`, () => {
     const subjects = ["Politics", "Business", "Sports", "Tech", "Health", "Mining", "World"];
     const groups = groupSubjectTargets(
@@ -137,17 +172,20 @@ describe("broadcastSubjectDigest", () => {
     findMany.mockResolvedValue([
       {
         sourceUrl: "https://awoko.org/1",
-        source: null,
+        publisher: null,
+        teams: [],
         categories: [{ name: "Politics" }],
       },
       {
         sourceUrl: "https://awoko.org/2",
-        source: null,
+        publisher: null,
+        teams: [],
         categories: [{ name: "Politics" }],
       },
       {
         sourceUrl: "https://awoko.org/3",
-        source: null,
+        publisher: null,
+        teams: [],
         categories: [{ name: "Politics" }],
       },
     ]);
@@ -185,7 +223,8 @@ describe("broadcastSubjectDigest", () => {
     findMany.mockResolvedValue([
       {
         sourceUrl: "https://awoko.org/1",
-        source: null,
+        publisher: null,
+        teams: [],
         categories: [{ name: "Politics" }],
       },
     ]);

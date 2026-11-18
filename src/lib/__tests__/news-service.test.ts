@@ -36,6 +36,7 @@ function makeArticle(overrides: Partial<TestArticle> = {}): TestArticle {
     imageUrl: "/test.jpg",
     sourceUrl: null,
     publisher: null,
+    teams: [],
     published: true,
     status: "PUBLISHED",
     province: "Western Area",

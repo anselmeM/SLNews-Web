@@ -25,6 +25,8 @@ export type ScraperArticle = {
   paragraphs?: string[];
   pubDate?: string;
   source?: string;
+  /** Follow ids the scraper derived for the story (`team:lal`, `league:spl`). */
+  teams?: string[];
   createdAt?: string;
 };
 
