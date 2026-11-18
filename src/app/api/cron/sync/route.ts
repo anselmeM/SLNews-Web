@@ -4,6 +4,7 @@ import { syncWorldNews } from "@/app/actions/sync-news-api";
 import { syncFromScraper } from "@/app/actions/sync-scraper";
 import { sendMorningBriefing } from "@/lib/briefing-service";
 import { reportError } from "@/lib/error-reporting";
+import { logger } from "@/lib/logger";
 import { syncMarketPrices } from "@/lib/market-sync-service";
 import { processPriceAlerts } from "@/lib/price-alert-service";
 import { broadcastSubjectDigest } from "@/lib/push/subject-alerts";
@@ -86,29 +87,29 @@ export async function GET(request: Request) {
   // readers who follow Politics or Awoko hear about it without the server
   // knowing who follows what. Best-effort: a digest failure must not fail the
   // ingestion run.
+  //
+  // Deliberately NOT gated on today's `total`: the digest summarises the last
+  // 24 hours from the database, so a scraper timeout (the 2026-11-18 run, where
+  // Render's cold start exceeded the 20 s budget) must not silence it. When the
+  // window is genuinely empty the digest reports `below-threshold` instead.
   let followDigest: Awaited<ReturnType<typeof broadcastSubjectDigest>> | null =
     null;
-  if (total > 0) {
-    try {
-      followDigest = await broadcastSubjectDigest();
-    } catch (error) {
-      reportError(error, { where: "cron/sync (follow digest)" });
-      followDigest = { topics: [], stories: 0, skipped: "error" };
-    }
-    // The response body is only visible to the caller; Vercel's dashboard and
-    // `vercel logs` show console output. Without this line a silent digest (no
-    // topics, or a schema failure) leaves no trace in production.
-    console.log(
-      "[cron] follow digest",
-      JSON.stringify({
-        topics: followDigest.topics.length,
-        delivered: followDigest.topics.filter((topic) => topic.ok).length,
-        stories: followDigest.stories,
-        skipped: followDigest.skipped ?? null,
-        detail: followDigest.topics,
-      })
-    );
+  try {
+    followDigest = await broadcastSubjectDigest();
+  } catch (error) {
+    reportError(error, { where: "cron/sync (follow digest)" });
+    followDigest = { topics: [], stories: 0, skipped: "error" };
   }
+  // The response body is only visible to the caller; Vercel's dashboard and
+  // `vercel logs` show console output. Without this line a silent digest (no
+  // topics, or a schema failure) leaves no trace in production.
+  logger.info("[cron] follow digest", {
+    topics: followDigest.topics.length,
+    delivered: followDigest.topics.filter((topic) => topic.ok).length,
+    stories: followDigest.stories,
+    skipped: followDigest.skipped ?? null,
+    detail: followDigest.topics,
+  });
 
   return NextResponse.json({
     success: ok,
