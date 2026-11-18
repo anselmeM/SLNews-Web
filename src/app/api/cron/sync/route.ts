@@ -95,6 +95,19 @@ export async function GET(request: Request) {
       reportError(error, { where: "cron/sync (follow digest)" });
       followDigest = { topics: [], stories: 0, skipped: "error" };
     }
+    // The response body is only visible to the caller; Vercel's dashboard and
+    // `vercel logs` show console output. Without this line a silent digest (no
+    // topics, or a schema failure) leaves no trace in production.
+    console.log(
+      "[cron] follow digest",
+      JSON.stringify({
+        topics: followDigest.topics.length,
+        delivered: followDigest.topics.filter((topic) => topic.ok).length,
+        stories: followDigest.stories,
+        skipped: followDigest.skipped ?? null,
+        detail: followDigest.topics,
+      })
+    );
   }
 
   return NextResponse.json({
