@@ -184,3 +184,12 @@ ALTER TABLE "Article" ADD COLUMN IF NOT EXISTS "publisher" TEXT;
 -- Article.teams (additive): follow ids the scraper derived for a story, e.g.
 -- {team:lal,league:nba}. The follow digest addresses readers on these topics.
 ALTER TABLE "Article" ADD COLUMN IF NOT EXISTS "teams" TEXT[] NOT NULL DEFAULT '{}';
+
+-- DigestRun (additive): one follow digest per UTC day. The insert is the claim,
+-- so a retried or manually triggered cron cannot push the same subjects twice.
+CREATE TABLE IF NOT EXISTS "DigestRun" (
+  "day" TEXT NOT NULL,
+  "topics" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "DigestRun_pkey" PRIMARY KEY ("day")
+);

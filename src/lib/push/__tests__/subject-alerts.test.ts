@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findMany = vi.fn();
+const digestRunCreate = vi.fn();
 const sendPushNotifications = vi.fn();
 
 vi.mock("@/lib/db", () => ({
-  db: { article: { findMany: (...args: unknown[]) => findMany(...args) } },
+  db: {
+    article: { findMany: (...args: unknown[]) => findMany(...args) },
+    digestRun: { create: (...args: unknown[]) => digestRunCreate(...args) },
+  },
 }));
 
 vi.mock("@/app/actions/push-actions", () => ({
@@ -161,6 +165,8 @@ describe("groupSubjectTargets", () => {
 describe("broadcastSubjectDigest", () => {
   beforeEach(() => {
     findMany.mockReset();
+    digestRunCreate.mockReset();
+    digestRunCreate.mockResolvedValue({});
     sendPushNotifications.mockReset();
     sendPushNotifications.mockResolvedValue({
       sent: 0,
@@ -217,6 +223,43 @@ describe("broadcastSubjectDigest", () => {
     }
     expect(result.topics).toHaveLength(2);
     expect(result.stories).toBe(3);
+    // The day is claimed before sending, so a retry cannot repeat it.
+    expect(digestRunCreate).toHaveBeenCalledWith({
+      data: { day: "2026-11-17", topics: 2 },
+    });
+  });
+
+  it("does not send twice on the same UTC day", async () => {
+    findMany.mockResolvedValue([
+      {
+        sourceUrl: "https://awoko.org/1",
+        publisher: null,
+        teams: [],
+        categories: [{ name: "Politics" }],
+      },
+      {
+        sourceUrl: "https://awoko.org/2",
+        publisher: null,
+        teams: [],
+        categories: [{ name: "Politics" }],
+      },
+      {
+        sourceUrl: "https://awoko.org/3",
+        publisher: null,
+        teams: [],
+        categories: [{ name: "Politics" }],
+      },
+    ]);
+    digestRunCreate.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" })
+    );
+
+    const result = await broadcastSubjectDigest(
+      new Date("2026-11-17T06:30:00Z")
+    );
+
+    expect(sendPushNotifications).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ topics: [], skipped: "already-ran" });
   });
 
   it("reports a below-threshold run without pushing", async () => {
@@ -229,9 +272,15 @@ describe("broadcastSubjectDigest", () => {
       },
     ]);
 
-    const result = await broadcastSubjectDigest();
+    const result = await broadcastSubjectDigest(new Date("2026-11-17T06:30:00Z"));
 
     expect(sendPushNotifications).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ topics: [], stories: 1, skipped: "below-threshold" });
+    // Nothing to send: the day stays unclaimed for a later run.
+    expect(digestRunCreate).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      topics: [],
+      stories: 1,
+      skipped: "below-threshold",
+    });
   });
 });
