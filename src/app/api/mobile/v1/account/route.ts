@@ -16,6 +16,7 @@
  * Order matters: our rows go first so a Clerk failure leaves a usable account the
  * reader can retry from, rather than an identity that can never be deleted again.
  */
+import { createHash } from "node:crypto";
 import type { NextResponse } from "next/server";
 import { noStoreJson as json } from "@/lib/api/responses";
 import { deleteClerkUser } from "@/lib/clerk-backend";
@@ -27,6 +28,25 @@ import { checkDbRateLimit, getClientIp } from "@/lib/rate-limiter";
 const WHERE = "api/mobile/v1/account";
 
 const RATE_LIMIT = { maxRequests: 5, windowMs: 60_000 };
+
+/**
+ * The rate-limit bucket identity passed to `checkDbRateLimit`.
+ *
+ * `getClientIp` returns a client-controlled request header and the bucket key is
+ * persisted in Postgres, so the identity is hashed in place rather than
+ * concatenated into a string: only a fixed-width SHA-256 digest ever reaches the
+ * database layer (Prisma binds it as a parameter). Request text therefore cannot
+ * be interpreted as query syntax, and the key length cannot grow with the
+ * header. Hashing does not change which requests share a bucket.
+ */
+function rateLimitKey(userId: string, request: Request): string {
+  const digest = createHash("sha256")
+    .update(userId)
+    .update("\0")
+    .update(getClientIp(request))
+    .digest("hex");
+  return `mobile-account-delete:${digest}`;
+}
 
 /** Per-user state operations are never cacheable. */
 
@@ -43,7 +63,7 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   }
 
   const limit = await checkDbRateLimit(
-    `mobile-account-delete:${userId}:${getClientIp(request)}`,
+    rateLimitKey(userId, request),
     RATE_LIMIT
   );
   if (!limit.allowed) {
