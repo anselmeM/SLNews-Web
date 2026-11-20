@@ -193,3 +193,11 @@ CREATE TABLE IF NOT EXISTS "DigestRun" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "DigestRun_pkey" PRIMARY KEY ("day")
 );
+
+-- Reader notification preferences (additive): the daily digest can be switched
+-- off, and a local quiet-hours window suppresses it. The app sends the device's
+-- UTC offset so the server can evaluate the window in the reader's own time.
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "digestCadence" TEXT NOT NULL DEFAULT 'daily';
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "quietHoursStart" INTEGER;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "quietHoursEnd" INTEGER;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "timezoneOffsetMinutes" INTEGER NOT NULL DEFAULT 0;

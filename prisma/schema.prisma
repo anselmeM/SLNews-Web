@@ -45,6 +45,15 @@ model User {
   bio             String?
   preferredTopics String[]
   dailyBriefing   Boolean      @default(false)
+
+  /// Mobile daily-digest cadence: "daily" or "off".
+  digestCadence   String       @default("daily")
+  /// Quiet-hours window in minutes since local midnight; null when disabled.
+  quietHoursStart Int?
+  quietHoursEnd   Int?
+  /// Reader's UTC offset captured from the device (minutes east of UTC).
+  timezoneOffsetMinutes Int @default(0)
+
   accounts        Account[]
   articles        Article[]
   sessions        Session[]
