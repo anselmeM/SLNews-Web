@@ -24,7 +24,7 @@ const WHERE = "api/mobile/v1/notification-preferences";
 
 const RATE_LIMIT = { maxRequests: 60, windowMs: 60_000 };
 
-export const DIGEST_CADENCES = new Set(["daily", "off"]);
+const DIGEST_CADENCES = new Set(["daily", "off"]);
 
 interface PreferenceRow {
   digestCadence: string;
