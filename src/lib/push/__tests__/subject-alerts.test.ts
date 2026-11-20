@@ -2,17 +2,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findMany = vi.fn();
 const digestRunCreate = vi.fn();
-const sendPushNotifications = vi.fn();
+const mobileDeviceFindMany = vi.fn();
+const sendNativePush = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   db: {
     article: { findMany: (...args: unknown[]) => findMany(...args) },
     digestRun: { create: (...args: unknown[]) => digestRunCreate(...args) },
+    mobileDevice: {
+      findMany: (...args: unknown[]) => mobileDeviceFindMany(...args),
+    },
   },
 }));
 
-vi.mock("@/app/actions/push-actions", () => ({
-  sendPushNotifications: (...args: unknown[]) => sendPushNotifications(...args),
+vi.mock("@/lib/push/fcm", () => ({
+  sendNativePush: (...args: unknown[]) => sendNativePush(...args),
 }));
 
 const {
@@ -167,15 +171,36 @@ describe("broadcastSubjectDigest", () => {
     findMany.mockReset();
     digestRunCreate.mockReset();
     digestRunCreate.mockResolvedValue({});
-    sendPushNotifications.mockReset();
-    sendPushNotifications.mockResolvedValue({
-      sent: 0,
-      nativeTopics: [{ topic: "slnews_topic_politics", ok: true }],
-    });
+    mobileDeviceFindMany.mockReset();
+    mobileDeviceFindMany.mockResolvedValue([]);
+    sendNativePush.mockReset();
+    sendNativePush.mockResolvedValue({ sent: 1, failed: 0, invalid: 0 });
   });
 
-  it("queries the last 24 hours and pushes one alert per subject topic", async () => {
-    findMany.mockResolvedValue([
+  function device(
+    userId: string,
+    targets: string[],
+    prefs: {
+      digestCadence?: string;
+      quietHoursStart?: number | null;
+      quietHoursEnd?: number | null;
+      timezoneOffsetMinutes?: number;
+    } = {}
+  ) {
+    return {
+      userId,
+      user: {
+        digestCadence: prefs.digestCadence ?? "daily",
+        quietHoursStart: prefs.quietHoursStart ?? null,
+        quietHoursEnd: prefs.quietHoursEnd ?? null,
+        timezoneOffsetMinutes: prefs.timezoneOffsetMinutes ?? 0,
+        mobileFollows: targets.map((targetId) => ({ targetId })),
+      },
+    };
+  }
+
+  function politicsStories() {
+    return [
       {
         sourceUrl: "https://awoko.org/1",
         publisher: null,
@@ -194,6 +219,15 @@ describe("broadcastSubjectDigest", () => {
         teams: [],
         categories: [{ name: "Politics" }],
       },
+    ];
+  }
+
+  it("delivers one digest per reader, filtered to the subjects they follow", async () => {
+    findMany.mockResolvedValue(politicsStories());
+    mobileDeviceFindMany.mockResolvedValue([
+      device("reader-1", ["topic:politics"]),
+      device("reader-2", ["publisher:awoko"]),
+      device("reader-3", ["topic:politics"], { digestCadence: "off" }),
     ]);
 
     const result = await broadcastSubjectDigest(
@@ -207,49 +241,65 @@ describe("broadcastSubjectDigest", () => {
       ).toISOString()
     );
 
-    expect(sendPushNotifications).toHaveBeenCalledTimes(2);
-    const targets = sendPushNotifications.mock.calls.map(
-      (call) => (call[3] as { targets: string[] }).targets
+    // The opt-out reader is skipped; the other two get only their own subject.
+    expect(sendNativePush).toHaveBeenCalledTimes(2);
+    const politicsCall = sendNativePush.mock.calls.find(
+      (call) =>
+        (call[0] as { data?: { target?: string } }).data?.target ===
+        "topic:politics"
     );
-    expect(targets).toContainEqual(["topic:politics"]);
-    expect(targets).toContainEqual(["publisher:awoko"]);
+    expect(politicsCall?.[0]).toMatchObject({ title: "Politics update" });
+    expect(politicsCall?.[1]).toEqual({ userIds: ["reader-1"] });
+    const awokoCall = sendNativePush.mock.calls.find(
+      (call) =>
+        (call[0] as { data?: { target?: string } }).data?.target ===
+        "publisher:awoko"
+    );
+    expect(awokoCall?.[0]).toMatchObject({ title: "New from Awoko Newspaper" });
+    expect(awokoCall?.[1]).toEqual({ userIds: ["reader-2"] });
 
-    // Targeted alerts must not fan out to browser subscriptions, which carry no
-    // follow information, and must use kinds the app's history understands.
-    for (const call of sendPushNotifications.mock.calls) {
-      const options = call[3] as { skipWebPush?: boolean; category?: string };
-      expect(options.skipWebPush).toBe(true);
-      expect(["publisher", "system"]).toContain(options.category);
-    }
     expect(result.topics).toHaveLength(2);
-    expect(result.stories).toBe(3);
-    // The day is claimed before sending, so a retry cannot repeat it.
+    expect(result.topics).toEqual(
+      expect.arrayContaining([
+        { target: "topic:politics", ok: true, count: 3 },
+        { target: "publisher:awoko", ok: true, count: 3 },
+      ])
+    );
+    expect(result.devices).toMatchObject({
+      readers: 3,
+      sent: 2,
+      skippedCadence: 1,
+    });
     expect(digestRunCreate).toHaveBeenCalledWith({
       data: { day: "2026-11-17", topics: 2 },
     });
   });
 
-  it("does not send twice on the same UTC day", async () => {
-    findMany.mockResolvedValue([
-      {
-        sourceUrl: "https://awoko.org/1",
-        publisher: null,
-        teams: [],
-        categories: [{ name: "Politics" }],
-      },
-      {
-        sourceUrl: "https://awoko.org/2",
-        publisher: null,
-        teams: [],
-        categories: [{ name: "Politics" }],
-      },
-      {
-        sourceUrl: "https://awoko.org/3",
-        publisher: null,
-        teams: [],
-        categories: [{ name: "Politics" }],
-      },
+  it("respects the reader's local quiet-hours window", async () => {
+    findMany.mockResolvedValue(politicsStories());
+    // 06:30 UTC at +0 is outside 22:00–07:00; at +2 it is 08:30, still outside.
+    // The window 06:00–07:00 contains 06:30 for a reader at UTC.
+    mobileDeviceFindMany.mockResolvedValue([
+      device("quiet-reader", ["topic:politics"], {
+        quietHoursStart: 360,
+        quietHoursEnd: 420,
+      }),
+      device("awake-reader", ["topic:politics"]),
     ]);
+
+    const result = await broadcastSubjectDigest(
+      new Date("2026-11-17T06:30:00Z")
+    );
+
+    expect(sendNativePush).toHaveBeenCalledTimes(1);
+    expect(sendNativePush.mock.calls[0]![1]).toEqual({
+      userIds: ["awake-reader"],
+    });
+    expect(result.devices).toMatchObject({ skippedQuiet: 1, sent: 1 });
+  });
+
+  it("does not send twice on the same UTC day", async () => {
+    findMany.mockResolvedValue(politicsStories());
     digestRunCreate.mockRejectedValue(
       Object.assign(new Error("Unique constraint failed"), { code: "P2002" })
     );
@@ -258,7 +308,7 @@ describe("broadcastSubjectDigest", () => {
       new Date("2026-11-17T06:30:00Z")
     );
 
-    expect(sendPushNotifications).not.toHaveBeenCalled();
+    expect(sendNativePush).not.toHaveBeenCalled();
     expect(result).toMatchObject({ topics: [], skipped: "already-ran" });
   });
 
@@ -272,9 +322,11 @@ describe("broadcastSubjectDigest", () => {
       },
     ]);
 
-    const result = await broadcastSubjectDigest(new Date("2026-11-17T06:30:00Z"));
+    const result = await broadcastSubjectDigest(
+      new Date("2026-11-17T06:30:00Z")
+    );
 
-    expect(sendPushNotifications).not.toHaveBeenCalled();
+    expect(sendNativePush).not.toHaveBeenCalled();
     // Nothing to send: the day stays unclaimed for a later run.
     expect(digestRunCreate).not.toHaveBeenCalled();
     expect(result).toMatchObject({

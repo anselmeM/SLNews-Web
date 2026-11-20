@@ -1,11 +1,12 @@
 /**
- * Daily follow digest: one push per busy subject, published to that subject's
- * FCM topic.
+ * Daily follow digest: one message per reader, built from the subjects they
+ * follow.
  *
- * The app subscribes `slnews_<follow id>` for every topic, team, league and
- * newspaper the reader follows, so a message published here reaches exactly the
- * readers who follow that subject. Nothing is fanned out per device: the server
- * does not need to know who follows what.
+ * This used to publish to per-subject FCM topics, which reached exactly the
+ * followers of a subject without the server knowing who they were. Reader-level
+ * quiet hours and digest opt-out cannot be honoured inside a topic broadcast, so
+ * delivery now fans out per reader using their registered devices and follows.
+ * The trade is scale for control: the send is capped by `DIGEST_DEVICE_LIMIT`.
  *
  * Rules, all of them deliberate:
  *
@@ -14,13 +15,18 @@
  *   window would either miss stories or alert the same ones twice).
  * - **At least three stories.** One story is not a digest, and a push per story
  *   per subject would be spam; busy subjects earn the alert.
- * - **At most six subjects per run.** Topics are global, so the cap is the only
- *   thing bounding how many pushes a heavily-following reader receives in a
- *   day. The busiest subjects win.
+ * - **At most six subjects per run.** Every reader gets at most one digest, and
+ *   only for subjects they actually follow.
+ * - **Reader settings win.** `digestCadence = "off"` skips the reader entirely;
+ *   a quiet-hours window in their local time skips them too.
  */
+
+const DIGEST_DEVICE_LIMIT = 5_000;
+
 import { Status } from "@prisma/client";
-import { sendPushNotifications } from "@/app/actions/push-actions";
 import { db } from "@/lib/db";
+import { sendNativePush, type NativeMessage } from "@/lib/push/fcm";
+import { isWithinQuietHours } from "@/lib/push/quiet-hours";
 import {
   categoryTargetForName,
   publisherTargetForSource,
@@ -139,6 +145,14 @@ export async function broadcastSubjectDigest(
 ): Promise<{
   topics: Array<{ target: string; ok: boolean; count: number }>;
   stories: number;
+  devices: {
+    readers: number;
+    sent: number;
+    failed: number;
+    skippedCadence: number;
+    skippedQuiet: number;
+    skippedNoMatch: number;
+  };
   skipped?: string;
 }> {
   const since = new Date(now.getTime() - SUBJECT_ALERT_WINDOW_MS);
@@ -176,22 +190,162 @@ export async function broadcastSubjectDigest(
       await db.digestRun.create({ data: { day, topics: groups.length } });
     } catch (error) {
       if ((error as { code?: string }).code === "P2002") {
-        return { topics: [], stories: articles.length, skipped: "already-ran" };
+        return {
+          topics: [],
+          stories: articles.length,
+          devices: {
+            readers: 0,
+            sent: 0,
+            failed: 0,
+            skippedCadence: 0,
+            skippedQuiet: 0,
+            skippedNoMatch: 0,
+          },
+          skipped: "already-ran",
+        };
       }
       throw error;
     }
   }
 
   const topics: Array<{ target: string; ok: boolean; count: number }> = [];
+  const deviceRows = await db.mobileDevice.findMany({
+    select: {
+      userId: true,
+      user: {
+        select: {
+          digestCadence: true,
+          quietHoursStart: true,
+          quietHoursEnd: true,
+          timezoneOffsetMinutes: true,
+          mobileFollows: {
+            where: { deletedAt: null },
+            select: { targetId: true },
+          },
+        },
+      },
+    },
+    take: DIGEST_DEVICE_LIMIT,
+  });
+
+  // One delivery decision per reader, even when they have several devices. The
+  // reader's follows decide which of today's subjects are relevant to them, and
+  // their quiet-hours window decides whether now is an acceptable time.
+  const readers = new Map<
+    string,
+    {
+      userId: string;
+      prefs: (typeof deviceRows)[number]["user"];
+      targets: Set<string>;
+    }
+  >();
+  for (const row of deviceRows) {
+    if (readers.has(row.userId)) continue;
+    readers.set(row.userId, {
+      userId: row.userId,
+      prefs: row.user,
+      targets: new Set(row.user.mobileFollows.map((follow) => follow.targetId)),
+    });
+  }
+
+  const stats = {
+    readers: readers.size,
+    sent: 0,
+    failed: 0,
+    skippedCadence: 0,
+    skippedQuiet: 0,
+    skippedNoMatch: 0,
+  };
+  const deliveredTargets = new Set<string>();
+  const queue = [...readers.values()];
+
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const reader = queue.shift();
+      if (!reader) return;
+      if (reader.prefs.digestCadence !== "daily") {
+        stats.skippedCadence++;
+        continue;
+      }
+      if (
+        isWithinQuietHours(
+          now,
+          reader.prefs.timezoneOffsetMinutes,
+          reader.prefs.quietHoursStart,
+          reader.prefs.quietHoursEnd
+        )
+      ) {
+        stats.skippedQuiet++;
+        continue;
+      }
+      const matching = groups.filter((group) =>
+        reader.targets.has(group.target)
+      );
+      if (matching.length === 0) {
+        stats.skippedNoMatch++;
+        continue;
+      }
+      try {
+        const result = await sendNativePush(digestMessage(matching), {
+          userIds: [reader.userId],
+        });
+        stats.sent += result.sent;
+        stats.failed += result.failed;
+        if (result.sent > 0) {
+          for (const group of matching) deliveredTargets.add(group.target);
+        }
+      } catch (error) {
+        // One reader's delivery failure must not abort the rest of the digest.
+        stats.failed++;
+        console.warn(
+          `digest: delivery failed for ${reader.userId}: ${
+            error instanceof Error ? error.message : "unknown error"
+          }`
+        );
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(5, queue.length) }, () => worker())
+  );
+
   for (const group of groups) {
-    const title =
-      group.kind === "publisher"
-        ? `New from ${group.label}`
-        : `${group.label} update`;
-    const body = `${group.count} new ${
-      group.count === 1 ? "story" : "stories"
-    } you follow. Tap to read.`;
-    const result = await sendPushNotifications(title, body, "/", {
+    topics.push({
+      target: group.target,
+      ok: deliveredTargets.has(group.target),
+      count: group.count,
+    });
+  }
+
+  return {
+    topics,
+    stories: articles.length,
+    devices: stats,
+    ...(topics.length === 0 ? { skipped: "below-threshold" } : {}),
+  };
+}
+
+/** Builds the per-reader digest message from the subjects they follow. */
+function digestMessage(groups: readonly SubjectGroup[]): NativeMessage {
+  if (groups.length === 1) {
+    const group = groups[0];
+    if (!group) {
+      return {
+        title: "Your daily briefing",
+        body: "Tap to read.",
+        url: "/",
+        category: "system",
+      };
+    }
+    return {
+      title:
+        group.kind === "publisher"
+          ? `New from ${group.label}`
+          : `${group.label} update`,
+      body: `${group.count} new ${
+        group.count === 1 ? "story" : "stories"
+      } you follow. Tap to read.`,
+      url: "/",
       // The app's history kinds are breaking/team/publisher/score/system; a
       // category digest has no dedicated kind, so it lands as `system`.
       category:
@@ -200,18 +354,29 @@ export async function broadcastSubjectDigest(
           : group.kind === "team"
             ? "team"
             : "system",
-      targets: [group.target],
-      skipWebPush: true,
       data: { target: group.target },
-    });
-    const delivered =
-      result.nativeTopics?.find((entry) => entry.ok) !== undefined;
-    topics.push({ target: group.target, ok: delivered, count: group.count });
+    };
   }
 
+  const labels = groups.slice(0, 3).map((group) => group.label);
+  const extra = groups.length > labels.length ? ` +${groups.length - labels.length} more` : "";
+  const first = groups[0];
+  if (!first) {
+    return {
+      title: "Your daily briefing",
+      body: "Tap to read.",
+      url: "/",
+      category: "system",
+    };
+  }
   return {
-    topics,
-    stories: articles.length,
-    ...(topics.length === 0 ? { skipped: "below-threshold" } : {}),
+    title: "Your daily briefing",
+    body: `${groups.length} followed topics updated: ${labels.join(", ")}${extra}. Tap to read.`,
+    url: "/",
+    category: "system",
+    data: {
+      target: first.target,
+      targets: groups.map((group) => group.target).join(","),
+    },
   };
 }
