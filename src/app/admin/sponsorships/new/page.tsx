@@ -1,13 +1,12 @@
-import { redirect } from "next/navigation";
 import { CampaignForm } from "./campaign-form";
-import { isAdminRequest } from "@/lib/admin/sponsorship-auth";
+import { requireAdminPage } from "@/lib/admin/require-admin-page";
 
 export default async function NewCampaignPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  if (!(await isAdminRequest())) redirect("/admin/sponsorships/login");
+  await requireAdminPage();
   const { error } = await searchParams;
   return (
     <main className="space-y-4">

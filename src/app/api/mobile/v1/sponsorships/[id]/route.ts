@@ -6,9 +6,11 @@
  * monthly report. Both require `x-admin-key`.
  */
 import { NextResponse } from "next/server";
+import { recordSponsorshipAudit } from "@/lib/admin/sponsorship-audit";
 import { adminKeyMatches } from "@/lib/admin-key";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
+import { revalidateSponsorships } from "@/lib/sponsorship-cache";
 
 const WHERE = "api/mobile/v1/sponsorships/[id]";
 
@@ -60,6 +62,12 @@ export async function PATCH(
 
   try {
     const updated = await db.sponsorship.update({ where: { id }, data });
+    revalidateSponsorships();
+    await recordSponsorshipAudit({
+      action: "api-patch",
+      targetId: id,
+      detail: JSON.stringify(data),
+    });
     return json({
       ok: true,
       id: updated.id,
@@ -80,7 +88,12 @@ export async function DELETE(
   if (denied) return denied;
   const { id } = await context.params;
   try {
-    await db.sponsorship.update({ where: { id }, data: { active: false } });
+    await db.sponsorship.update({
+      where: { id },
+      data: { active: false, archivedAt: new Date() },
+    });
+    revalidateSponsorships();
+    await recordSponsorshipAudit({ action: "api-archive", targetId: id });
     return json({ ok: true, id, active: false });
   } catch (error) {
     reportError(error, { where: `${WHERE} (delete)` });

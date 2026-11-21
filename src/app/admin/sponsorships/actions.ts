@@ -3,6 +3,7 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AdUploadError, uploadCreative } from "@/lib/admin/ad-upload";
+import { recordSponsorshipAudit } from "@/lib/admin/sponsorship-audit";
 import {
   ADMIN_COOKIE,
   expectedToken,
@@ -14,6 +15,8 @@ import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
 import { db } from "@/lib/db";
 import { sendNativePush } from "@/lib/push/fcm";
 import { checkDbRateLimit } from "@/lib/rate-limiter";
+import { revalidateSponsorships } from "@/lib/sponsorship-cache";
+import { asDatabasePlacement } from "@/lib/sponsorship-validation";
 
 export async function login(formData: FormData): Promise<void> {
   // Slow down key guessing: ten attempts per IP per ten minutes.
@@ -53,66 +56,178 @@ async function requireAdmin(): Promise<void> {
   if (!(await isAdminRequest())) redirect("/admin/sponsorships/login");
 }
 
-export async function createCampaign(formData: FormData): Promise<void> {
-  await requireAdmin();
+async function resolveCreative(
+  formData: FormData,
+  fallback?: string
+): Promise<string | undefined> {
   const upload = formData.get("imageFile");
   const hasUpload = upload instanceof File && upload.size > 0;
+  if (!hasUpload) return fallback;
   // A selected file wins over the optional URL, so a stale/invalid URL in the
   // field must not block a file-only campaign.
-  if (hasUpload) formData.set("imageUrl", "");
+  formData.set("imageUrl", "");
+  try {
+    return await uploadCreative(upload);
+  } catch (error) {
+    console.error("Creative upload failed", {
+      name: (error as Error)?.name,
+      message: (error as Error)?.message,
+      fileName: upload.name,
+      fileSize: upload.size,
+      fileType: upload.type,
+      blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
+      storeId: process.env.BLOB_STORE_ID ? "set" : "unset",
+    });
+    const message =
+      error instanceof AdUploadError
+        ? error.message
+        : `Creative upload failed: ${
+            error instanceof Error ? error.message : "unknown Blob error"
+          }`;
+    redirect(`/admin/sponsorships/new?error=${encodeURIComponent(message)}`);
+  }
+}
+
+export async function createCampaign(formData: FormData): Promise<void> {
+  await requireAdmin();
   const parsed = parseCampaignForm(formData);
   if (!parsed.ok) {
     redirect(
       `/admin/sponsorships/new?error=${encodeURIComponent(parsed.errors.join(" "))}`
     );
   }
-  let imageUrl = parsed.value.imageUrl;
-  if (hasUpload) {
-    try {
-      imageUrl = await uploadCreative(upload);
-    } catch (error) {
-      console.error("Creative upload failed", {
-        name: (error as Error)?.name,
-        message: (error as Error)?.message,
-        fileName: upload.name,
-        fileSize: upload.size,
-        fileType: upload.type,
-        blobConfigured: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
-        storeId: process.env.BLOB_STORE_ID ? "set" : "unset",
-      });
-      const message =
-        error instanceof AdUploadError
-          ? error.message
-          : `Creative upload failed: ${
-              error instanceof Error ? error.message : "unknown Blob error"
-            }`;
-      redirect(`/admin/sponsorships/new?error=${encodeURIComponent(message)}`);
-    }
-  }
-
-  await db.sponsorship.create({
+  const imageUrl = await resolveCreative(formData, parsed.value.imageUrl);
+  const altText = parsed.value.altText ?? (imageUrl ? parsed.value.advertiser : undefined);
+  const created = await db.sponsorship.create({
     data: {
       ...parsed.value,
+      placement: asDatabasePlacement(parsed.value.placement),
       imageUrl,
-      assetLabel: parsed.value.assetLabel ?? null,
-      disclosure: parsed.value.disclosure ?? null,
+      altText,
+      disclosure:
+        parsed.value.disclosure ?? `Sponsored by ${parsed.value.advertiser}`,
     },
   });
+  await recordSponsorshipAudit({
+    action: "create",
+    targetId: created.id,
+    detail: `${parsed.value.advertiser}: ${parsed.value.headline}`,
+  });
+  revalidateSponsorships();
   redirect("/admin/sponsorships?created=1");
+}
+
+export async function updateCampaign(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) redirect("/admin/sponsorships?updateFailed=1");
+  const parsed = parseCampaignForm(formData);
+  if (!parsed.ok) {
+    redirect(
+      `/admin/sponsorships/${encodeURIComponent(id)}/edit?error=${encodeURIComponent(
+        parsed.errors.join(" ")
+      )}`
+    );
+  }
+  const existing = await db.sponsorship.findUnique({ where: { id } });
+  if (!existing) redirect("/admin/sponsorships?updateFailed=1");
+  const imageUrl = await resolveCreative(formData, parsed.value.imageUrl);
+  const altText = parsed.value.altText ?? (imageUrl ? parsed.value.advertiser : undefined);
+  await db.sponsorship.update({
+    where: { id },
+    data: {
+      ...parsed.value,
+      placement: asDatabasePlacement(parsed.value.placement),
+      imageUrl,
+      altText,
+      disclosure:
+        parsed.value.disclosure ?? `Sponsored by ${parsed.value.advertiser}`,
+    },
+  });
+  await recordSponsorshipAudit({
+    action: "update",
+    targetId: id,
+    detail: `${parsed.value.advertiser}: ${parsed.value.headline}`,
+  });
+  revalidateSponsorships();
+  redirect("/admin/sponsorships?updated=1");
+}
+
+export async function duplicateCampaign(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  const source = id
+    ? await db.sponsorship.findUnique({ where: { id } })
+    : null;
+  if (!source) redirect("/admin/sponsorships?duplicateFailed=1");
+  const now = new Date();
+  const copy = await db.sponsorship.create({
+    data: {
+      placement: source.placement,
+      advertiser: source.advertiser,
+      headline: source.headline,
+      body: source.body,
+      ctaLabel: source.ctaLabel,
+      ctaUrl: source.ctaUrl,
+      brandHex: source.brandHex,
+      brandAccentHex: source.brandAccentHex,
+      assetLabel: source.assetLabel,
+      disclosure: source.disclosure,
+      imageUrl: source.imageUrl,
+      altText: source.altText,
+      startsAt: now,
+      endsAt: new Date(now.getTime() + 7 * 86_400_000),
+      active: false,
+      priority: source.priority,
+      weight: source.weight,
+      maxImpressions: source.maxImpressions,
+      dailyImpressionCap: source.dailyImpressionCap,
+    },
+  });
+  await recordSponsorshipAudit({
+    action: "duplicate",
+    targetId: copy.id,
+    detail: `from ${id}`,
+  });
+  revalidateSponsorships();
+  redirect("/admin/sponsorships?duplicated=1");
 }
 
 export async function stopCampaign(formData: FormData): Promise<void> {
   await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (id)
-    await db.sponsorship.update({ where: { id }, data: { active: false } });
+  const id = String(formData.get("id") ?? "").trim();
+  if (id) {
+    await db.sponsorship.update({
+      where: { id },
+      data: { active: false },
+    });
+    await recordSponsorshipAudit({ action: "stop", targetId: id });
+    revalidateSponsorships();
+  }
   redirect("/admin/sponsorships?stopped=1");
+}
+
+export async function archiveCampaign(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (id) {
+    await db.sponsorship.update({
+      where: { id },
+      data: { active: false, archivedAt: new Date() },
+    });
+    await recordSponsorshipAudit({ action: "archive", targetId: id });
+    revalidateSponsorships();
+  }
+  redirect("/admin/sponsorships?archived=1");
 }
 
 export async function extendCampaign(formData: FormData): Promise<void> {
   await requireAdmin();
-  const id = String(formData.get("id") ?? "");
+  const id = String(formData.get("id") ?? "").trim();
   const days = Number(formData.get("days") ?? 7);
+  if (!Number.isFinite(days) || days <= 0 || days > 90) {
+    redirect("/admin/sponsorships?extendBlocked=1");
+  }
   if (id) {
     const campaign = await db.sponsorship.findUnique({ where: { id } });
     const now = new Date();
@@ -120,19 +235,26 @@ export async function extendCampaign(formData: FormData): Promise<void> {
     // its end date. Stopped/expired campaigns use the explicit reactivate path.
     if (
       !campaign ||
+      campaign.archivedAt !== null ||
       !campaign.active ||
       (campaign.endsAt !== null && campaign.endsAt <= now)
     ) {
       redirect("/admin/sponsorships?extendBlocked=1");
     }
     const base =
-      campaign?.endsAt !== null && campaign?.endsAt !== undefined
+      campaign.endsAt !== null && campaign.endsAt !== undefined
         ? campaign.endsAt
         : now;
     await db.sponsorship.update({
       where: { id },
       data: { endsAt: new Date(base.getTime() + days * 86_400_000) },
     });
+    await recordSponsorshipAudit({
+      action: "extend",
+      targetId: id,
+      detail: `+${days}d`,
+    });
+    revalidateSponsorships();
   }
   redirect("/admin/sponsorships?extended=1");
 }
@@ -140,11 +262,13 @@ export async function extendCampaign(formData: FormData): Promise<void> {
 /** Explicitly brings a stopped/expired campaign back for a fresh 7-day window. */
 export async function reactivateCampaign(formData: FormData): Promise<void> {
   await requireAdmin();
-  const id = String(formData.get("id") ?? "");
+  const id = String(formData.get("id") ?? "").trim();
   if (id) {
     const campaign = await db.sponsorship.findUnique({ where: { id } });
     const now = new Date();
-    if (!campaign) redirect("/admin/sponsorships?reactivateFailed=1");
+    if (!campaign || campaign.archivedAt !== null) {
+      redirect("/admin/sponsorships?reactivateFailed=1");
+    }
     const keepEnd =
       campaign.endsAt !== null && campaign.endsAt > now
         ? campaign.endsAt
@@ -153,6 +277,8 @@ export async function reactivateCampaign(formData: FormData): Promise<void> {
       where: { id },
       data: { active: true, endsAt: keepEnd },
     });
+    await recordSponsorshipAudit({ action: "reactivate", targetId: id });
+    revalidateSponsorships();
   }
   redirect("/admin/sponsorships?reactivated=1");
 }
@@ -160,9 +286,9 @@ export async function reactivateCampaign(formData: FormData): Promise<void> {
 /** Inserts a browser-safe demo campaign so the whole loop can be tried without PowerShell. */
 export async function seedDemoCampaign(): Promise<void> {
   await requireAdmin();
-  await db.sponsorship.create({
+  const created = await db.sponsorship.create({
     data: {
-      placement: "feed",
+      placement: asDatabasePlacement("feed"),
       advertiser: "SLNews Demo",
       headline: "DEMO CAMPAIGN",
       body: "Inserted from the admin console",
@@ -170,9 +296,12 @@ export async function seedDemoCampaign(): Promise<void> {
       ctaUrl: "https://slnews.sl",
       brandHex: "#0B6FD1",
       brandAccentHex: "#2E9BF5",
+      disclosure: "Demo campaign — not billable",
       endsAt: new Date(Date.now() + 2 * 3_600_000),
     },
   });
+  await recordSponsorshipAudit({ action: "seed-demo", targetId: created.id });
+  revalidateSponsorships();
   redirect("/admin/sponsorships?created=1");
 }
 
@@ -190,6 +319,10 @@ export async function sendTestPush(): Promise<void> {
   } catch {
     // Report zeroes rather than leaking internals to the console URL.
   }
+  await recordSponsorshipAudit({
+    action: "test-push",
+    detail: `sent=${result.sent} failed=${result.failed}`,
+  });
   redirect(
     `/admin/sponsorships?pushSent=${result.sent}&pushFailed=${result.failed}`
   );

@@ -1,7 +1,11 @@
 import { get, put } from "@vercel/blob";
+import sharp, { type Metadata } from "sharp";
 
 /** Vercel's function request body limit is 4.5 MB; keep margin for multipart. */
 export const MAX_CREATIVE_BYTES = 4 * 1024 * 1024;
+const ALLOWED_FORMATS = new Set(["jpeg", "png", "webp", "avif"]);
+const MAX_DIMENSION = 4096;
+const MAX_PIXELS = 16_000_000;
 const ALLOWED_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -46,6 +50,33 @@ function appOrigin(): string {
  * instead; `/api/mobile/v1/creative` streams the blob with a long immutable
  * cache. The pathname is a random UUID, so the proxy URL is unguessable.
  */
+/**
+ * Decodes the image server-side. A declared MIME type is not proof: an HTML/SVG
+ * or arbitrary binary file can claim `image/png`. This also rejects pixel bombs
+ * before the creative reaches the app.
+ */
+export async function validateCreativeImage(file: File): Promise<string | null> {
+  let metadata: Metadata;
+  try {
+    metadata = await sharp(Buffer.from(await file.arrayBuffer())).metadata();
+  } catch {
+    return "Creative is not a valid image.";
+  }
+  if (!metadata.format || !ALLOWED_FORMATS.has(metadata.format)) {
+    return "Creative must be a JPEG, PNG, WebP or AVIF image.";
+  }
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  if (width < 1 || height < 1) return "Creative has no readable dimensions.";
+  if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+    return `Creative dimensions must be at most ${MAX_DIMENSION}x${MAX_DIMENSION}.`;
+  }
+  if (width * height > MAX_PIXELS) {
+    return "Creative has too many pixels.";
+  }
+  return null;
+}
+
 export async function uploadCreative(file: File): Promise<string> {
   if (!isUploadConfigured()) {
     throw new AdUploadError(
@@ -54,6 +85,8 @@ export async function uploadCreative(file: File): Promise<string> {
   }
   const invalid = validateCreativeFile(file);
   if (invalid) throw new AdUploadError(invalid);
+  const imageInvalid = await validateCreativeImage(file);
+  if (imageInvalid) throw new AdUploadError(imageInvalid);
 
   const pathname = `sponsorships/${crypto.randomUUID()}.${safeExtension(file.name)}`;
   const common = {

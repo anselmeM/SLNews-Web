@@ -1,6 +1,5 @@
 ﻿import Link from "next/link";
-import { redirect } from "next/navigation";
-import { isAdminRequest } from "@/lib/admin/sponsorship-auth";
+import { requireAdminPage } from "@/lib/admin/require-admin-page";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +38,7 @@ async function scraperGet(path: string) {
 export default async function SystemPage() {
   // Admin data must never be rendered for a signed-out visitor; the layout is
   // shared with the login page, so the guard lives in each protected page.
-  if (!(await isAdminRequest())) redirect("/admin/sponsorships/login");
+  await requireAdminPage();
 
   const [stats, sources] = await Promise.all([
     scraperGet("/api/stats"),

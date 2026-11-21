@@ -1,8 +1,9 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   AdUploadError,
   uploadCreative,
   validateCreativeFile,
+  validateCreativeImage,
 } from "../ad-upload";
 
 function file(type: string, bytes: number): File {
@@ -22,6 +23,20 @@ describe("ad creative upload", () => {
     expect(validateCreativeFile(file("image/png", 5 * 1024 * 1024))).toContain(
       "4 MB"
     );
+  });
+
+  it("decodes image bytes instead of trusting the declared MIME type", async () => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64"
+    );
+    const fake = new File([png], "creative.png", { type: "image/png" });
+    expect(await validateCreativeImage(fake)).toBeNull();
+
+    const notImage = new File([Buffer.from("<html>nope</html>")], "x.png", {
+      type: "image/png",
+    });
+    expect(await validateCreativeImage(notImage)).toContain("valid image");
   });
 
   it("explains when Blob storage is not configured", async () => {
