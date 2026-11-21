@@ -1,37 +1,106 @@
 "use client";
 
-import { useState } from "react";
-import { createCampaign } from "../actions";
+import { useMemo, useState } from "react";
+import { createCampaign, updateCampaign } from "../actions";
+import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
 
-const defaults = {
-  placement: "feed",
-  advertiser: "Orange SL",
-  headline: "SCAN AND SAVE",
-  body: "Every top-up this month",
-  ctaLabel: "View more",
-  ctaUrl: "https://example.com/offer",
-  brandHex: "#0B6FD1",
-  brandAccentHex: "#2E9BF5",
-  assetLabel: "$5",
-  disclosure: "Terms apply",
-  imageUrl: "",
+type FormState = {
+  placement: string;
+  advertiser: string;
+  headline: string;
+  body: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  brandHex: string;
+  brandAccentHex: string;
+  assetLabel: string;
+  disclosure: string;
+  imageUrl: string;
+  altText: string;
+  priority: string;
+  weight: string;
+  maxImpressions: string;
+  dailyImpressionCap: string;
+  startsAt: string;
+  endsAt: string;
 };
 
-/** Create form with a live preview of the native card the app will render. */
-export function CampaignForm() {
-  const [form, setForm] = useState(defaults);
+const defaults: FormState = {
+  placement: "feed",
+  advertiser: "",
+  headline: "",
+  body: "",
+  ctaLabel: "View more",
+  ctaUrl: "",
+  brandHex: "#0B6FD1",
+  brandAccentHex: "#2E9BF5",
+  assetLabel: "",
+  disclosure: "",
+  imageUrl: "",
+  altText: "",
+  priority: "0",
+  weight: "1",
+  maxImpressions: "",
+  dailyImpressionCap: "",
+  startsAt: "",
+  endsAt: "",
+};
+
+const textFields = [
+  ["advertiser", "Advertiser (max 80)", 80, true],
+  ["headline", "Headline (max 40)", 40, true],
+  ["body", "Body (max 80)", 80, true],
+  ["ctaLabel", "CTA label (max 18)", 18, true],
+  ["ctaUrl", "CTA URL (http/https, max 500)", 500, true],
+  ["brandHex", "Brand colour (#RRGGBB)", 7, true],
+  ["brandAccentHex", "Accent colour (#RRGGBB)", 7, true],
+  ["assetLabel", "Offer label (optional, max 20)", 20, false],
+  ["disclosure", "Disclosure (optional, max 120)", 120, false],
+  ["altText", "Image alt text (optional, max 120)", 120, false],
+] as const;
+
+/** Create/edit form with a live preview of the native card the app renders. */
+export function CampaignForm({
+  mode = "create",
+  campaignId,
+  initial,
+}: {
+  mode?: "create" | "edit";
+  campaignId?: string;
+  initial?: Partial<FormState>;
+}) {
+  const starting = useMemo(() => ({ ...defaults, ...initial }), [initial]);
+  const [form, setForm] = useState<FormState>(starting);
+  const [filePreview, setFilePreview] = useState<string>("");
+  const [errors, setErrors] = useState<string[]>([]);
   const set =
-    (key: keyof typeof defaults) => (event: { target: { value: string } }) =>
+    (key: keyof FormState) => (event: { target: { value: string } }) =>
       setForm((current) => ({ ...current, [key]: event.target.value }));
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
       <form
-        action={createCampaign}
+        action={mode === "edit" ? updateCampaign : createCampaign}
         className="space-y-3 rounded-2xl border border-outline-variant/30 p-4"
+        onSubmit={(event) => {
+          const parsed = parseCampaignForm(new FormData(event.currentTarget));
+          if (!parsed.ok) {
+            event.preventDefault();
+            setErrors(parsed.errors);
+          } else {
+            setErrors([]);
+          }
+        }}
       >
-        <label className="block text-xs font-semibold">Placement</label>
+        {campaignId ? (
+          <input type="hidden" name="id" value={campaignId} />
+        ) : null}
+
+        <label className="block text-xs font-semibold" htmlFor="placement">
+          Placement
+        </label>
         <select
+          id="placement"
           name="placement"
           value={form.placement}
           onChange={set("placement")}
@@ -42,20 +111,7 @@ export function CampaignForm() {
           <option value="article_end">article_end</option>
         </select>
 
-        {(
-          [
-            ["advertiser", "Advertiser", 40],
-            ["headline", "Headline (max 40)", 40],
-            ["body", "Body (max 80)", 80],
-            ["ctaLabel", "CTA label (max 18)", 18],
-            ["ctaUrl", "CTA URL", 200],
-            ["brandHex", "Brand colour (#RRGGBB)", 7],
-            ["brandAccentHex", "Accent colour (#RRGGBB)", 7],
-            ["assetLabel", "Offer label (optional)", 20],
-            ["disclosure", "Disclosure (optional)", 60],
-            ["imageUrl", "Image URL (optional, https)", 500],
-          ] as const
-        ).map(([key, label, max]) => (
+        {textFields.map(([key, label, max, required]) => (
           <div key={key}>
             <label className="block text-xs font-semibold" htmlFor={key}>
               {label}
@@ -67,10 +123,77 @@ export function CampaignForm() {
               maxLength={max}
               onChange={set(key)}
               className="w-full rounded-lg border px-3 py-2"
-              required={!["assetLabel", "disclosure", "imageUrl"].includes(key)}
+              required={required}
             />
           </div>
         ))}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold" htmlFor="priority">
+              Priority (0–1000)
+            </label>
+            <input
+              id="priority"
+              name="priority"
+              type="number"
+              min={0}
+              max={1000}
+              value={form.priority}
+              onChange={set("priority")}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold" htmlFor="weight">
+              Weight (1–100)
+            </label>
+            <input
+              id="weight"
+              name="weight"
+              type="number"
+              min={1}
+              max={100}
+              value={form.weight}
+              onChange={set("weight")}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label
+              className="block text-xs font-semibold"
+              htmlFor="maxImpressions"
+            >
+              Total impression cap (optional)
+            </label>
+            <input
+              id="maxImpressions"
+              name="maxImpressions"
+              type="number"
+              min={0}
+              value={form.maxImpressions}
+              onChange={set("maxImpressions")}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label
+              className="block text-xs font-semibold"
+              htmlFor="dailyImpressionCap"
+            >
+              Daily impression cap (optional)
+            </label>
+            <input
+              id="dailyImpressionCap"
+              name="dailyImpressionCap"
+              type="number"
+              min={0}
+              value={form.dailyImpressionCap}
+              onChange={set("dailyImpressionCap")}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+        </div>
 
         <div>
           <label className="block text-xs font-semibold" htmlFor="imageFile">
@@ -80,15 +203,20 @@ export function CampaignForm() {
             id="imageFile"
             name="imageFile"
             type="file"
-            onChange={() =>
-              setForm((current) => ({ ...current, imageUrl: "" }))
-            }
+            onChange={(event) => {
+              setFilePreview(
+                event.target.files?.[0]
+                  ? URL.createObjectURL(event.target.files[0])
+                  : ""
+              );
+              setForm((current) => ({ ...current, imageUrl: "" }));
+            }}
             accept="image/jpeg,image/png,image/webp,image/avif"
             className="w-full rounded-lg border px-3 py-2 text-xs"
           />
           <p className="mt-1 text-[11px] text-gray-500">
-            Needs a connected Vercel Blob store. You can also paste an https
-            image URL above.
+            Needs a connected Vercel Blob store. Uploading wins over the image
+            URL above.
           </p>
         </div>
 
@@ -101,6 +229,8 @@ export function CampaignForm() {
               id="startsAt"
               name="startsAt"
               type="datetime-local"
+              value={form.startsAt}
+              onChange={set("startsAt")}
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
@@ -112,16 +242,26 @@ export function CampaignForm() {
               id="endsAt"
               name="endsAt"
               type="datetime-local"
+              value={form.endsAt}
+              onChange={set("endsAt")}
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
         </div>
 
+        {errors.length > 0 ? (
+          <ul className="space-y-1 rounded-lg bg-red-50 p-3 text-xs text-red-800">
+            {errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
+        ) : null}
+
         <button
           type="submit"
           className="rounded-lg bg-black px-4 py-2 text-white"
         >
-          Save campaign
+          {mode === "edit" ? "Save changes" : "Save campaign"}
         </button>
       </form>
 
@@ -136,11 +276,11 @@ export function CampaignForm() {
               background: `linear-gradient(135deg, ${form.brandAccentHex}, ${form.brandHex})`,
             }}
           >
-            {form.imageUrl ? (
+            {filePreview || form.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={form.imageUrl}
-                alt=""
+                src={filePreview || form.imageUrl}
+                alt={form.altText || ""}
                 className="mb-3 h-24 w-full rounded-lg object-cover"
               />
             ) : null}

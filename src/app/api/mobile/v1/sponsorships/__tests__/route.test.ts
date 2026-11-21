@@ -59,7 +59,7 @@ describe("/api/mobile/v1/sponsorships", () => {
     expect(db.sponsorship.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ placement: "feed", active: true }),
-        take: 6,
+        take: 50,
       })
     );
   });

@@ -33,42 +33,42 @@ model Session {
 }
 
 model User {
-  id              String         @id @default(cuid())
+  id              String    @id @default(cuid())
   name            String?
-  email           String?        @unique
+  email           String?   @unique
   emailVerified   DateTime?
   image           String?
-  role            Role           @default(USER)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  role            Role      @default(USER)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   password        String?
   bio             String?
   preferredTopics String[]
-  dailyBriefing   Boolean      @default(false)
+  dailyBriefing   Boolean   @default(false)
 
   /// Mobile daily-digest cadence: "daily" or "off".
-  digestCadence   String       @default("daily")
+  digestCadence         String @default("daily")
   /// Quiet-hours window in minutes since local midnight; null when disabled.
-  quietHoursStart Int?
-  quietHoursEnd   Int?
+  quietHoursStart       Int?
+  quietHoursEnd         Int?
   /// Reader's UTC offset captured from the device (minutes east of UTC).
-  timezoneOffsetMinutes Int @default(0)
+  timezoneOffsetMinutes Int    @default(0)
 
-  accounts        Account[]
-  articles        Article[]
-  sessions        Session[]
-  savedArticles   SavedArticle[]
-  comments        Comment[]
-  reactions       ArticleReaction[]
-  priceAlerts     PriceAlert[]
-  priceReports    PriceReport[]
-  following       Follow[]     @relation("Following")
-  followers       Follow[]     @relation("Followers")
+  accounts             Account[]
+  articles             Article[]
+  sessions             Session[]
+  savedArticles        SavedArticle[]
+  comments             Comment[]
+  reactions            ArticleReaction[]
+  priceAlerts          PriceAlert[]
+  priceReports         PriceReport[]
+  following            Follow[]              @relation("Following")
+  followers            Follow[]              @relation("Followers")
   announcementComments AnnouncementComment[]
-  mobileBookmarks MobileBookmark[]
-  mobileReactions MobileReaction[]
-  mobileFollows   MobileFollow[]
-  mobileDevices   MobileDevice[]
+  mobileBookmarks      MobileBookmark[]
+  mobileReactions      MobileReaction[]
+  mobileFollows        MobileFollow[]
+  mobileDevices        MobileDevice[]
 }
 
 model SavedArticle {
@@ -103,7 +103,7 @@ model VerificationToken {
 }
 
 model Article {
-  id            String         @id @default(cuid())
+  id            String            @id @default(cuid())
   title         String
   content       String
   summary       String?
@@ -117,7 +117,7 @@ model Article {
   /// drafts written in the editor have no external URL. Unique: two rows for the
   /// same link are exactly the duplicate this column exists to prevent (Postgres
   /// permits many NULLs in a unique index).
-  sourceUrl     String?        @unique
+  sourceUrl     String?           @unique
   /// Outlet a scraped story came from, as the scraper names it ("Concord
   /// Times"). Named `publisher` because the public article shape already uses
   /// `source` for the author's display name. Nullable: rows imported before
@@ -126,19 +126,19 @@ model Article {
   publisher     String?
   /// Follow ids (`team:lal`, `league:spl`) the story is about, as the scraper
   /// derives them from the headline and summary. Empty when no subject matched.
-  teams         String[]       @default([])
-  published     Boolean        @default(false)
-  status        Status         @default(DRAFT)
+  teams         String[]          @default([])
+  published     Boolean           @default(false)
+  status        Status            @default(DRAFT)
   province      String?
   district      String?
   authorId      String
-  breaking      Boolean        @default(false)
+  breaking      Boolean           @default(false)
   breakingSetAt DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
   publishedAt   DateTime?
-  author        User           @relation(fields: [authorId], references: [id])
-  categories    Category[]     @relation("ArticleToCategory")
+  author        User              @relation(fields: [authorId], references: [id])
+  categories    Category[]        @relation("ArticleToCategory")
   savedByUsers  SavedArticle[]
   comments      Comment[]
   reactions     ArticleReaction[]
@@ -189,7 +189,7 @@ model MarketPrice {
 }
 
 model Announcement {
-  id           String   @id @default(cuid())
+  id           String                @id @default(cuid())
   title        String
   body         String
   category     String
@@ -198,21 +198,21 @@ model Announcement {
   location     String
   dateLabel    String
   urgency      String?
-  published    Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  published    Boolean               @default(true)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
   comments     AnnouncementComment[]
 
   @@index([published, category, createdAt])
 }
 
 model AnnouncementComment {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   content        String
   announcementId String
   userId         String
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -222,13 +222,13 @@ model AnnouncementComment {
 }
 
 model Comment {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   content   String
   articleId String
   userId    String
   parentId  String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   article Article   @relation(fields: [articleId], references: [id], onDelete: Cascade)
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -245,8 +245,8 @@ model ArticleReaction {
   userId    String
   emoji     String
   createdAt DateTime @default(now())
-  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([articleId, userId, emoji])
   @@index([articleId])
@@ -422,27 +422,82 @@ model MobileDevice {
 /// returns only active units inside their date window, in the same shape as the
 /// seeded `AdUnit`, so the app renders both with one widget.
 model Sponsorship {
-  id             String    @id @default(cuid())
-  /// Ad surface: "feed", "sports_stream", "article_end".
-  placement      String
-  advertiser     String
-  headline       String
-  body           String
-  ctaLabel       String
-  ctaUrl         String
-  brandHex       String    @default("#0B6FD1")
-  brandAccentHex String    @default("#2E9BF5")
-  assetLabel     String?
-  disclosure     String?
-  imageUrl       String?
-  startsAt       DateTime  @default(now())
-  endsAt         DateTime?
-  active         Boolean   @default(true)
-  /// Counters incremented by the app's public event endpoint.
-  impressions    Int       @default(0)
-  taps           Int       @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                 String    @id @default(cuid())
+  /// Ad surface: feed | sports_stream | article_end. Validated by the shared
+  /// placement list in code; kept as text so db push cannot require a destructive
+  /// enum cast on existing rows.
+  placement          String
+  advertiser         String
+  headline           String
+  body               String
+  ctaLabel           String
+  ctaUrl             String
+  brandHex           String    @default("#0B6FD1")
+  brandAccentHex     String    @default("#2E9BF5")
+  assetLabel         String?
+  disclosure         String?
+  imageUrl           String?
+  /// Required for a sold creative when the image is present; consumed by the app
+  /// for accessibility.
+  altText            String?
+  startsAt           DateTime  @default(now())
+  endsAt             DateTime?
+  active             Boolean   @default(true)
+  /// Soft-delete marker: archived campaigns are hidden from the public API and
+  /// the default admin list but keep their counters/report history.
+  archivedAt         DateTime?
+  /// Higher priority is served first; weight breaks ties during rotation.
+  priority           Int       @default(0)
+  weight             Int       @default(1)
+  /// Optional delivery caps. Null means uncapped.
+  maxImpressions     Int?
+  dailyImpressionCap Int?
+  /// Lifetime counters incremented by the app's event endpoint.
+  impressions        Int       @default(0)
+  taps               Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  @@index([placement, active, startsAt, endsAt])
+  dailyMetrics SponsorshipDailyMetric[]
+  events       SponsorshipEvent[]
+
+  @@index([placement, active, archivedAt, startsAt, endsAt])
+  @@index([createdAt])
+}
+
+/// One row per campaign per UTC day, used for invoicing and date-range reports.
+model SponsorshipDailyMetric {
+  sponsorshipId String
+  day           DateTime    @db.Date
+  impressions   Int         @default(0)
+  taps          Int         @default(0)
+  sponsorship   Sponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+
+  @@id([sponsorshipId, day])
+  @@index([day])
+}
+
+/// Deduplication ledger for app events. The client-generated event id is the
+/// primary key, so a retry/replay cannot increment a counter twice.
+model SponsorshipEvent {
+  id            String      @id
+  sponsorshipId String
+  type          String
+  createdAt     DateTime    @default(now())
+  sponsorship   Sponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
+
+  @@index([sponsorshipId, createdAt])
+  @@index([createdAt])
+}
+
+/// Minimal audit trail for admin sponsorship mutations.
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  targetId  String?
+  actor     String   @default("admin")
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

@@ -47,20 +47,30 @@ describe("parseCampaignForm", () => {
 
   it("normalizes a scheme-less or http image URL to https", () => {
     const schemeless = form();
-    schemeless.set("imageUrl", "cdn.example.com/creative.jpg");
+    schemeless.set(
+      "imageUrl",
+      "store.public.blob.vercel-storage.com/creative.jpg"
+    );
+    schemeless.set("altText", "Orange logo");
     const first = parseCampaignForm(schemeless);
     expect(first.ok).toBe(true);
     if (first.ok) {
-      expect(first.value.imageUrl).toBe("https://cdn.example.com/creative.jpg");
+      expect(first.value.imageUrl).toBe(
+        "https://store.public.blob.vercel-storage.com/creative.jpg"
+      );
     }
 
     const http = form();
-    http.set("imageUrl", "http://cdn.example.com/creative.jpg");
+    http.set(
+      "imageUrl",
+      "http://store.public.blob.vercel-storage.com/creative.jpg"
+    );
+    http.set("altText", "Orange logo");
     const second = parseCampaignForm(http);
     expect(second.ok).toBe(true);
     if (second.ok) {
       expect(second.value.imageUrl).toBe(
-        "https://cdn.example.com/creative.jpg"
+        "https://store.public.blob.vercel-storage.com/creative.jpg"
       );
     }
   });

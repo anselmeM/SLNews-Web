@@ -1,12 +1,18 @@
 /**
- * `/api/mobile/v1/sponsorships/report` — per-unit delivery numbers for sponsors.
+ * `/api/mobile/v1/sponsorships/report` — per-campaign delivery numbers.
  *
- * Admin-only (`x-admin-key`). Returns impressions, taps and CTR for every unit that
- * was live during the window, which is the monthly number a customer is invoiced on.
+ * Admin-only (`x-admin-key`). Counters come from daily metric rows, so
+ * `from`/`to` produce a real monthly view instead of lifetime totals.
+ *
+ * GET ?from=YYYY-MM-DD&to=YYYY-MM-DD&format=json|csv
  */
 import { NextResponse } from "next/server";
+import {
+  loadSponsorshipReport,
+  reportRange,
+  reportToCsv,
+} from "@/lib/admin/sponsorship-report";
 import { adminKeyMatches } from "@/lib/admin-key";
-import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
 
 const WHERE = "api/mobile/v1/sponsorships/report";
@@ -20,38 +26,37 @@ function json(body: unknown, status = 200): NextResponse {
 
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.SPONSORSHIP_ADMIN_KEY?.trim();
-  if (!expected)
+  if (!expected) {
     return json({ error: "Sponsorship admin is not configured." }, 503);
+  }
   if (!adminKeyMatches(request.headers.get("x-admin-key"), expected)) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const placement = new URL(request.url).searchParams.get("placement")?.trim();
+  const url = new URL(request.url);
+  const range = reportRange(
+    url.searchParams.get("from"),
+    url.searchParams.get("to")
+  );
+  if (!range) return json({ error: "Invalid date range." }, 400);
+
   try {
-    const rows = await db.sponsorship.findMany({
-      where: placement ? { placement } : {},
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        placement: true,
-        advertiser: true,
-        headline: true,
-        active: true,
-        startsAt: true,
-        endsAt: true,
-        impressions: true,
-        taps: true,
-      },
-    });
+    const items = await loadSponsorshipReport(range.from, range.to);
+    if (url.searchParams.get("format") === "csv") {
+      return new NextResponse(reportToCsv(items, range.from, range.to), {
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="sponsorships-${range.from
+            .toISOString()
+            .slice(0, 10)}-to-${range.to.toISOString().slice(0, 10)}.csv"`,
+        },
+      });
+    }
     return json({
-      items: rows.map((row) => ({
-        ...row,
-        ctr:
-          row.impressions > 0
-            ? Number((row.taps / row.impressions).toFixed(4))
-            : 0,
-      })),
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
+      items,
     });
   } catch (error) {
     reportError(error, { where: `${WHERE} (read)` });

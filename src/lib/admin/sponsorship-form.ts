@@ -1,7 +1,16 @@
 /** Validation shared by the console form and its tests. */
 
+import {
+  SPONSORSHIP_LIMITS,
+  SPONSORSHIP_PLACEMENTS,
+  isApprovedCreativeUrl,
+  type SponsorshipPlacementValue,
+} from "@/lib/sponsorship-validation";
+
+export const PLACEMENTS = SPONSORSHIP_PLACEMENTS;
+
 export type CampaignInput = {
-  placement: string;
+  placement: SponsorshipPlacementValue;
   advertiser: string;
   headline: string;
   body: string;
@@ -12,11 +21,14 @@ export type CampaignInput = {
   assetLabel?: string;
   disclosure?: string;
   imageUrl?: string;
+  altText?: string;
   startsAt?: Date;
   endsAt?: Date;
+  priority: number;
+  weight: number;
+  maxImpressions?: number;
+  dailyImpressionCap?: number;
 };
-
-export const PLACEMENTS = ["feed", "sports_stream", "article_end"] as const;
 
 export type ParseResult =
   { ok: true; value: CampaignInput } | { ok: false; errors: string[] };
@@ -26,10 +38,39 @@ function str(data: FormData, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function dateOrUndefined(raw: string): Date | undefined {
+function optionalStr(data: FormData, key: string): string | undefined {
+  const value = str(data, key);
+  return value.length > 0 ? value : undefined;
+}
+
+function dateOrUndefined(raw: string): Date | undefined | null {
   if (!raw) return undefined;
   const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function intOrUndefined(
+  data: FormData,
+  key: string
+): number | undefined | null {
+  const raw = str(data, key);
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validHttpUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.hostname.length > 0 &&
+      url.username === "" &&
+      url.password === ""
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Parses and bounds a submitted campaign, mirroring the public API rules. */
@@ -45,35 +86,93 @@ export function parseCampaignForm(data: FormData): ParseResult {
   const endsAt = dateOrUndefined(str(data, "endsAt"));
   const rawImageUrl = str(data, "imageUrl");
   const imageUrl = rawImageUrl
-    ? /^https?:\/\//i.test(rawImageUrl)
+    ? rawImageUrl.includes("://")
       ? rawImageUrl.replace(/^http:\/\//i, "https://")
-      : /^[a-z][a-z0-9+.-]*:\/\//i.test(rawImageUrl)
-        ? rawImageUrl
-        : `https://${rawImageUrl}`
+      : `https://${rawImageUrl}`
     : "";
+  const altText = optionalStr(data, "altText");
+  const priority = intOrUndefined(data, "priority") ?? 0;
+  const weight = intOrUndefined(data, "weight") ?? 1;
+  const maxImpressions = intOrUndefined(data, "maxImpressions");
+  const dailyImpressionCap = intOrUndefined(data, "dailyImpressionCap");
 
-  if (!PLACEMENTS.includes(placement as (typeof PLACEMENTS)[number])) {
+  if (!(PLACEMENTS as readonly string[]).includes(placement)) {
     errors.push("Choose a valid placement.");
   }
-  if (!advertiser) errors.push("Advertiser is required.");
-  if (!headline || headline.length > 40)
-    errors.push("Headline is required (max 40 chars).");
-  if (!body || body.length > 80)
-    errors.push("Body is required (max 80 chars).");
-  if (!ctaLabel || ctaLabel.length > 18)
-    errors.push("CTA label is required (max 18 chars).");
-  if (!/^https?:\/\//i.test(ctaUrl))
-    errors.push("CTA URL must start with http(s)://.");
-  if (startsAt && endsAt && endsAt <= startsAt)
+  if (!advertiser || advertiser.length > SPONSORSHIP_LIMITS.advertiser) {
+    errors.push(
+      `Advertiser is required (max ${SPONSORSHIP_LIMITS.advertiser} chars).`
+    );
+  }
+  if (!headline || headline.length > SPONSORSHIP_LIMITS.headline) {
+    errors.push(
+      `Headline is required (max ${SPONSORSHIP_LIMITS.headline} chars).`
+    );
+  }
+  if (!body || body.length > SPONSORSHIP_LIMITS.body) {
+    errors.push(`Body is required (max ${SPONSORSHIP_LIMITS.body} chars).`);
+  }
+  if (!ctaLabel || ctaLabel.length > SPONSORSHIP_LIMITS.ctaLabel) {
+    errors.push(
+      `CTA label is required (max ${SPONSORSHIP_LIMITS.ctaLabel} chars).`
+    );
+  }
+  if (!validHttpUrl(ctaUrl) || ctaUrl.length > SPONSORSHIP_LIMITS.ctaUrl) {
+    errors.push("CTA URL must be an absolute http(s) URL without credentials.");
+  }
+  if (startsAt === null) errors.push("Starts must be a valid date.");
+  if (endsAt === null) errors.push("Ends must be a valid date.");
+  if (
+    startsAt instanceof Date &&
+    endsAt instanceof Date &&
+    endsAt <= startsAt
+  ) {
     errors.push("End must be after start.");
-  if (imageUrl && !/^https:\/\//i.test(imageUrl))
-    errors.push("Image URL must be an https URL.");
+  }
+  if (imageUrl) {
+    if (imageUrl.length > SPONSORSHIP_LIMITS.imageUrl) {
+      errors.push("Image URL is too long.");
+    } else if (!isApprovedCreativeUrl(imageUrl)) {
+      errors.push(
+        "Image URL must be an approved Vercel Blob or creative-proxy https URL."
+      );
+    }
+    if (!altText) {
+      errors.push("Alt text is required when a creative image is supplied.");
+    }
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(str(data, "brandHex") || "#0B6FD1")) {
+    errors.push("Brand colour must be a #RRGGBB value.");
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(str(data, "brandAccentHex") || "#2E9BF5")) {
+    errors.push("Accent colour must be a #RRGGBB value.");
+  }
+  if (
+    priority < 0 ||
+    priority > SPONSORSHIP_LIMITS.maxPriority ||
+    weight < 1 ||
+    weight > SPONSORSHIP_LIMITS.maxWeight
+  ) {
+    errors.push("Priority/weight are out of range.");
+  }
+  for (const cap of [maxImpressions, dailyImpressionCap]) {
+    if (cap !== undefined && (cap === null || cap < 0)) {
+      errors.push("Delivery caps must be positive integers.");
+    }
+    if (
+      cap !== undefined &&
+      cap !== null &&
+      cap > SPONSORSHIP_LIMITS.maxImpressionCap
+    ) {
+      errors.push("Delivery cap is too large.");
+    }
+  }
 
   if (errors.length > 0) return { ok: false, errors };
   return {
     ok: true,
     value: {
-      placement,
+      placement: placement as SponsorshipPlacementValue,
       advertiser,
       headline,
       body,
@@ -81,11 +180,16 @@ export function parseCampaignForm(data: FormData): ParseResult {
       ctaUrl,
       brandHex: str(data, "brandHex") || "#0B6FD1",
       brandAccentHex: str(data, "brandAccentHex") || "#2E9BF5",
-      assetLabel: str(data, "assetLabel") || undefined,
-      disclosure: str(data, "disclosure") || undefined,
+      assetLabel: optionalStr(data, "assetLabel"),
+      disclosure: optionalStr(data, "disclosure"),
       imageUrl: imageUrl || undefined,
-      startsAt,
-      endsAt,
+      altText,
+      startsAt: startsAt instanceof Date ? startsAt : undefined,
+      endsAt: endsAt instanceof Date ? endsAt : undefined,
+      priority,
+      weight,
+      maxImpressions: maxImpressions ?? undefined,
+      dailyImpressionCap: dailyImpressionCap ?? undefined,
     },
   };
 }
