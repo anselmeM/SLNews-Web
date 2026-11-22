@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
+import { checkDbRateLimit, getClientIp } from "@/lib/rate-limiter";
 import { fetchImageSafely, UnsafeImageUrlError } from "@/lib/safe-image-fetch";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const maxDuration = 20;
 
 export async function GET(request: Request) {
   const ip = getClientIp(request);
-  const limit = checkRateLimit(`image-proxy:${ip}`, {
+  const limit = await checkDbRateLimit(`image-proxy:${ip}`, {
     maxRequests: 120,
     windowMs: 60_000,
   });

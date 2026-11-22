@@ -13,11 +13,27 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { reportError } from "@/lib/error-reporting";
 import { checkDbRateLimit, getClientIp } from "@/lib/rate-limiter";
 import { verifyEventToken } from "@/lib/sponsorship-events";
 
 const RATE_LIMIT = { maxRequests: 120, windowMs: 60_000 };
 const EVENT_ID = /^[A-Za-z0-9_-]{8,80}$/;
+/**
+ * Token-less events are a rollout bridge, not a permanent public API. Keep them
+ * until the updated app has replaced old installs, then set
+ * SPONSORSHIP_ALLOW_LEGACY_EVENTS=false. If the operator does neither, the
+ * built-in cutoff closes the bridge on 2027-01-31.
+ */
+const LEGACY_EVENTS_CUTOFF = Date.UTC(2027, 0, 31);
+
+function legacyEventsAllowed(now: number = Date.now()): boolean {
+  if (process.env.SPONSORSHIP_ALLOW_LEGACY_EVENTS === "false") return false;
+  if (process.env.SPONSORSHIP_ALLOW_LEGACY_EVENTS === "true") return true;
+  const configured = process.env.SPONSORSHIP_LEGACY_EVENTS_UNTIL;
+  const cutoff = configured ? Date.parse(configured) : LEGACY_EVENTS_CUTOFF;
+  return Number.isFinite(cutoff) ? now < cutoff : false;
+}
 
 function json(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
@@ -42,6 +58,27 @@ type Campaign = {
   impressions: number;
   dailyImpressionCap: number | null;
 };
+
+const CAMPAIGN_SELECT = {
+  id: true,
+  active: true,
+  archivedAt: true,
+  startsAt: true,
+  endsAt: true,
+  maxImpressions: true,
+  impressions: true,
+  dailyImpressionCap: true,
+} as const;
+
+function isLive(campaign: Campaign | null, now: Date): campaign is Campaign {
+  return (
+    campaign !== null &&
+    campaign.active &&
+    campaign.archivedAt === null &&
+    campaign.startsAt <= now &&
+    (campaign.endsAt === null || campaign.endsAt >= now)
+  );
+}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const limit = await checkDbRateLimit(
@@ -74,10 +111,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return json({ error: "Invalid or expired event token." }, 401);
     }
   } else {
-    // Transitional: app builds before the signed-token release still send only
-    // {id,type}. Keep counting them until those installs age out, unless the
-    // operator explicitly disables legacy events.
-    if (process.env.SPONSORSHIP_ALLOW_LEGACY_EVENTS === "false") {
+    if (!legacyEventsAllowed()) {
       return json({ error: "Invalid or expired event token." }, 401);
     }
     eventId = `legacy_${randomUUID()}`;
@@ -86,58 +120,52 @@ export async function POST(request: Request): Promise<NextResponse> {
   const now = new Date();
   const campaign = (await db.sponsorship.findUnique({
     where: { id },
-    select: {
-      id: true,
-      active: true,
-      archivedAt: true,
-      startsAt: true,
-      endsAt: true,
-      maxImpressions: true,
-      impressions: true,
-      dailyImpressionCap: true,
-    },
+    select: CAMPAIGN_SELECT,
   })) as Campaign | null;
-
-  const isLive =
-    campaign !== null &&
-    campaign.active &&
-    campaign.archivedAt === null &&
-    campaign.startsAt <= now &&
-    (campaign.endsAt === null || campaign.endsAt >= now);
-  if (!campaign || !isLive) return json({ ok: true, counted: false });
+  // Cheap early rejection; the authoritative state is re-read under the lock.
+  if (!isLive(campaign, now)) return json({ ok: true, counted: false });
 
   const day = utcDay(now);
-  if (
-    type === "impression" &&
-    campaign.maxImpressions !== null &&
-    campaign.impressions >= campaign.maxImpressions
-  ) {
-    return json({ ok: true, counted: false });
-  }
-
   try {
     const counted = await db.$transaction(async (tx) => {
+      // Event writes for one campaign serialize here. This makes the lifetime
+      // and daily cap checks safe under concurrent requests; without it two
+      // callers can both observe room under a cap and both increment.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
+
+      const locked = (await tx.sponsorship.findUnique({
+        where: { id },
+        select: CAMPAIGN_SELECT,
+      })) as Campaign | null;
+      if (!isLive(locked, new Date())) return false;
+
+      if (type === "impression") {
+        if (
+          locked.maxImpressions !== null &&
+          locked.impressions >= locked.maxImpressions
+        ) {
+          return false;
+        }
+        if (locked.dailyImpressionCap !== null) {
+          if (locked.dailyImpressionCap <= 0) return false;
+          const metric = await tx.sponsorshipDailyMetric.findUnique({
+            where: { sponsorshipId_day: { sponsorshipId: id, day } },
+            select: { impressions: true },
+          });
+          if (
+            metric !== null &&
+            metric.impressions >= locked.dailyImpressionCap
+          ) {
+            return false;
+          }
+        }
+      }
+
       const existing = await tx.sponsorshipEvent.findUnique({
         where: { id: eventId },
         select: { id: true },
       });
       if (existing) return false;
-
-      if (type === "impression" && campaign.dailyImpressionCap !== null) {
-        if (campaign.dailyImpressionCap <= 0) return false;
-        const metric = await tx.sponsorshipDailyMetric.findUnique({
-          where: {
-            sponsorshipId_day: { sponsorshipId: id, day },
-          },
-          select: { impressions: true },
-        });
-        if (
-          metric !== null &&
-          metric.impressions >= campaign.dailyImpressionCap
-        ) {
-          return false;
-        }
-      }
 
       await tx.sponsorshipEvent.create({
         data: { id: eventId, sponsorshipId: id, type },
@@ -165,9 +193,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       return true;
     });
     return json({ ok: true, counted });
-  } catch {
+  } catch (error) {
     // Duplicate event id (race), unknown campaign or storage failure: the
-    // measurement layer must never break the reader.
+    // measurement layer must never break the reader, but operators need to know
+    // when delivery accounting is failing.
+    reportError(error, { where: "api/mobile/v1/sponsorships/events" });
     return json({ ok: true, counted: false });
   }
 }

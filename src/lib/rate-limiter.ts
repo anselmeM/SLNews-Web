@@ -76,8 +76,17 @@ export async function checkDbRateLimit(
   }
 }
 
+/**
+ * Client IP for per-IP buckets.
+ *
+ * Vercel overwrites `x-forwarded-for` at its edge; `x-vercel-forwarded-for` is
+ * the platform's own single-value header and is preferred when present. Direct
+ * connections outside Vercel can still spoof these headers, so IP buckets are
+ * abuse friction, not an authentication boundary.
+ */
 export function getClientIp(request: Request): string {
   return (
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-real-ip") ||
     "127.0.0.1"

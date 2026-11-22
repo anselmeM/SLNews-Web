@@ -3,6 +3,7 @@ import { DELETE as remove, PATCH as patch } from "../[id]/route";
 import { POST as events } from "../events/route";
 import { GET as report } from "../report/route";
 import { db } from "@/lib/db";
+import { reportError } from "@/lib/error-reporting";
 import { checkDbRateLimit } from "@/lib/rate-limiter";
 import { createEventToken } from "@/lib/sponsorship-events";
 
@@ -18,11 +19,12 @@ const campaign = {
 };
 
 const tx = {
+  $queryRaw: vi.fn(),
   sponsorshipEvent: {
     findUnique: vi.fn(),
     create: vi.fn(),
   },
-  sponsorship: { update: vi.fn() },
+  sponsorship: { findUnique: vi.fn(), update: vi.fn() },
   sponsorshipDailyMetric: {
     findUnique: vi.fn(),
     upsert: vi.fn(),
@@ -86,7 +88,9 @@ describe("sponsorship measurement", () => {
     vi.mocked(db.sponsorship.findMany).mockResolvedValue([] as never);
     vi.mocked(tx.sponsorshipEvent.findUnique).mockResolvedValue(null);
     vi.mocked(tx.sponsorshipEvent.create).mockResolvedValue({} as never);
+    vi.mocked(tx.sponsorship.findUnique).mockResolvedValue(campaign as never);
     vi.mocked(tx.sponsorship.update).mockResolvedValue({} as never);
+    vi.mocked(tx.$queryRaw).mockResolvedValue([] as never);
     vi.mocked(tx.sponsorshipDailyMetric.findUnique).mockResolvedValue(null);
     vi.mocked(tx.sponsorshipDailyMetric.upsert).mockResolvedValue({} as never);
     vi.mocked(db.$transaction).mockImplementation((async (
@@ -169,6 +173,48 @@ describe("sponsorship measurement", () => {
     expect(tx.sponsorship.update).not.toHaveBeenCalled();
   });
 
+  it("does not exceed the lifetime impression cap under the lock", async () => {
+    vi.mocked(tx.sponsorship.findUnique).mockResolvedValue({
+      ...campaign,
+      impressions: 10,
+      maxImpressions: 10,
+    } as never);
+    const token = createEventToken("sp_1")!;
+    const response = await events(
+      post({
+        id: "sp_1",
+        type: "impression",
+        eventId: "ev_cap_lifetime",
+        token,
+      })
+    );
+    expect(await response.json()).toEqual({ ok: true, counted: false });
+    expect(tx.sponsorship.update).not.toHaveBeenCalled();
+    expect(tx.sponsorshipDailyMetric.upsert).not.toHaveBeenCalled();
+  });
+
+  it("does not exceed the daily impression cap under the lock", async () => {
+    vi.mocked(tx.sponsorship.findUnique).mockResolvedValue({
+      ...campaign,
+      dailyImpressionCap: 5,
+    } as never);
+    vi.mocked(tx.sponsorshipDailyMetric.findUnique).mockResolvedValue({
+      impressions: 5,
+    } as never);
+    const token = createEventToken("sp_1")!;
+    const response = await events(
+      post({
+        id: "sp_1",
+        type: "impression",
+        eventId: "ev_cap_daily",
+        token,
+      })
+    );
+    expect(await response.json()).toEqual({ ok: true, counted: false });
+    expect(tx.sponsorship.update).not.toHaveBeenCalled();
+    expect(tx.sponsorshipDailyMetric.upsert).not.toHaveBeenCalled();
+  });
+
   it("does not count events for stopped campaigns", async () => {
     vi.mocked(db.sponsorship.findUnique).mockResolvedValue({
       ...campaign,
@@ -217,6 +263,35 @@ describe("sponsorship measurement", () => {
     expect(body.items[0].taps).toBe(3);
     expect(body.items[0].ctr).toBeCloseTo(0.02, 4);
     expect(body.items[0].daily).toHaveLength(2);
+  });
+
+  it("reports a storage failure while keeping the reader response safe", async () => {
+    vi.mocked(tx.sponsorshipEvent.create).mockRejectedValue(
+      new Error("database unavailable")
+    );
+    const token = createEventToken("sp_1")!;
+    const response = await events(
+      post({
+        id: "sp_1",
+        type: "impression",
+        eventId: "ev_storage_failure",
+        token,
+      })
+    );
+    expect(await response.json()).toEqual({ ok: true, counted: false });
+    expect(vi.mocked(reportError)).toHaveBeenCalled();
+  });
+
+  it("closes token-less legacy events after the fallback cutoff", async () => {
+    vi.stubEnv("SPONSORSHIP_ALLOW_LEGACY_EVENTS", "");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2027-02-01T00:00:00.000Z"));
+      const response = await events(post({ id: "sp_1", type: "impression" }));
+      expect(response.status).toBe(401);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("archives a campaign through DELETE", async () => {

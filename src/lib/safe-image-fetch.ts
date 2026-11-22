@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import net from "node:net";
+import { Agent, fetch as pinnedFetch } from "undici";
 
 /** Thrown when a URL must not be fetched (scheme, host or resolved address). */
 export class UnsafeImageUrlError extends Error {}
@@ -37,8 +38,27 @@ export function isPrivateAddress(address: string): boolean {
   return true;
 }
 
-/** Rejects non-https, private literals and hostnames that resolve privately. */
-export async function assertPublicImageUrl(raw: string): Promise<URL> {
+/** A URL plus the exact address the request must connect to. */
+export interface PinnedImageUrl {
+  url: URL;
+  address: string;
+  family: 4 | 6;
+}
+
+function normaliseHostname(url: URL): string {
+  return url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+/**
+ * Rejects non-https, private literals and hostnames that resolve privately.
+ *
+ * The returned address is the one the caller must pin for the real request.
+ * Validating DNS and then letting fetch re-resolve the hostname would leave a
+ * DNS-rebinding window; callers must use the returned address.
+ */
+export async function assertPublicImageUrl(
+  raw: string
+): Promise<PinnedImageUrl> {
   let url: URL;
   try {
     url = new URL(raw.trim());
@@ -49,7 +69,7 @@ export async function assertPublicImageUrl(raw: string): Promise<URL> {
   if (url.protocol === "http:") url.protocol = "https:";
   if (url.protocol !== "https:") throw new UnsafeImageUrlError("scheme");
 
-  const host = url.hostname.toLowerCase();
+  const host = normaliseHostname(url);
   if (
     BLOCKED_HOSTS.includes(host) ||
     host.endsWith(".local") ||
@@ -59,10 +79,14 @@ export async function assertPublicImageUrl(raw: string): Promise<URL> {
   }
   if (net.isIP(host)) {
     if (isPrivateAddress(host)) throw new UnsafeImageUrlError("address");
-    return url;
+    return {
+      url,
+      address: host,
+      family: net.isIPv6(host) ? 6 : 4,
+    };
   }
 
-  let addresses: Array<{ address: string }>;
+  let addresses: Array<{ address: string; family: number }>;
   try {
     addresses = await lookup(host, { all: true, verbatim: true });
   } catch {
@@ -74,7 +98,13 @@ export async function assertPublicImageUrl(raw: string): Promise<URL> {
   if (addresses.some((entry) => isPrivateAddress(entry.address))) {
     throw new UnsafeImageUrlError("address");
   }
-  return url;
+  const chosen = addresses[0];
+  if (!chosen) throw new UnsafeImageUrlError("dns");
+  return {
+    url,
+    address: chosen.address,
+    family: chosen.family === 6 ? 6 : 4,
+  };
 }
 
 export interface FetchedImage {
@@ -86,11 +116,23 @@ export interface FetchedImage {
 const MAX_REDIRECTS = 3;
 const MAX_BYTES = 8 * 1024 * 1024;
 
+/** Connect only to the address that passed validation, never a fresh lookup. */
+function pinnedDispatcher(pinned: PinnedImageUrl): Agent {
+  return new Agent({
+    connect: {
+      lookup: (_hostname, _options, callback) => {
+        callback(null, pinned.address, pinned.family);
+      },
+    },
+  });
+}
+
 /**
  * Fetches an image without following redirects blindly.
  *
- * Every hop is re-validated (scheme, private literal, DNS answer), which closes
- * the redirect-to-internal SSRF the previous `redirect: "follow"` allowed.
+ * Every hop is re-validated (scheme, private literal, DNS answer) and the
+ * validated address is pinned into the connection. This closes both the
+ * redirect-to-internal SSRF and the validate-then-re-resolve rebinding gap.
  */
 export async function fetchImageSafely(
   raw: string,
@@ -100,36 +142,52 @@ export async function fetchImageSafely(
   const timeout = options.timeoutMs ?? 12_000;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    const response = await fetch(current, {
-      redirect: "manual",
-      headers: {
-        "user-agent":
-          options.userAgent ??
-          "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Mobile Safari/537.36 SLNews/1.0",
-        accept: "image/avif,image/webp,image/*,*/*;q=0.8",
-        referer: `${current.origin}/`,
-      },
-      signal: AbortSignal.timeout(timeout),
-    });
+    const dispatcher = pinnedDispatcher(current);
+    try {
+      const response = await pinnedFetch(current.url, {
+        dispatcher,
+        redirect: "manual",
+        headers: {
+          "user-agent":
+            options.userAgent ??
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Mobile Safari/537.36 SLNews/1.0",
+          accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+          referer: `${current.url.origin}/`,
+        },
+        signal: AbortSignal.timeout(timeout),
+      });
 
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location) throw new UnsafeImageUrlError("redirect");
-      const next = new URL(location, current).toString();
-      current = await assertPublicImageUrl(next);
-      continue;
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        await response.body?.cancel();
+        if (!location) throw new UnsafeImageUrlError("redirect");
+        const next = new URL(location, current.url).toString();
+        current = await assertPublicImageUrl(next);
+        continue;
+      }
+
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`upstream ${response.status}`);
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.startsWith("image/")) {
+        await response.body?.cancel();
+        throw new UnsafeImageUrlError("content-type");
+      }
+      const declared = Number(response.headers.get("content-length") ?? "0");
+      if (declared > MAX_BYTES) {
+        await response.body?.cancel();
+        throw new UnsafeImageUrlError("too-large");
+      }
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength > MAX_BYTES) {
+        throw new UnsafeImageUrlError("too-large");
+      }
+      return { bytes, contentType, finalUrl: current.url.toString() };
+    } finally {
+      await dispatcher.close();
     }
-
-    if (!response.ok) throw new Error(`upstream ${response.status}`);
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.startsWith("image/"))
-      throw new UnsafeImageUrlError("content-type");
-    const declared = Number(response.headers.get("content-length") ?? "0");
-    if (declared > MAX_BYTES) throw new UnsafeImageUrlError("too-large");
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > MAX_BYTES)
-      throw new UnsafeImageUrlError("too-large");
-    return { bytes, contentType, finalUrl: current.toString() };
   }
   throw new UnsafeImageUrlError("too-many-redirects");
 }

@@ -51,7 +51,7 @@ third-party audit or attestation is added.
 |---|---|
 | `SPONSORSHIP_ADMIN_KEY` | Admin console key and fallback event-token secret |
 | `SPONSORSHIP_EVENT_SECRET` | Preferred dedicated event-token secret |
-| `SPONSORSHIP_ALLOW_LEGACY_EVENTS` | `false` disables token-less events from pre-token app builds; leave unset/true until those installs age out |
+| `SPONSORSHIP_ALLOW_LEGACY_EVENTS` | `false` disables token-less events from pre-token app builds; leave unset/true until those installs age out |\n| `SPONSORSHIP_LEGACY_EVENTS_UNTIL` | ISO cutoff for token-less events when the flag is unset; defaults to 2027-01-31 |
 | `BLOB_READ_WRITE_TOKEN` | Creative uploads (Vercel Blob) |
 | `CREATIVE_ALLOWED_HOSTS` | Optional comma-separated extra image hosts; Vercel Blob and the private creative proxy are approved by default |
 
