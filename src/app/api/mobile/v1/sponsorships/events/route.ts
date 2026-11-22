@@ -131,7 +131,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Event writes for one campaign serialize here. This makes the lifetime
       // and daily cap checks safe under concurrent requests; without it two
       // callers can both observe room under a cap and both increment.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id})::bigint)`;
 
       const locked = (await tx.sponsorship.findUnique({
         where: { id },
