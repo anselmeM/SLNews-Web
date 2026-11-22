@@ -247,7 +247,7 @@ export default async function SponsorshipsAdminPage({
                                 Duplicate
                               </button>
                             </form>
-                            {row.active ? (
+                            {row.active && status !== "expired" ? (
                               <>
                                 <form action={stopCampaign}>
                                   <input
