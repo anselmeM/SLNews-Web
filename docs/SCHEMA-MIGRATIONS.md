@@ -1,45 +1,44 @@
-# Schema migration policy
+# Schema migrations
+
+Production schema history is tracked with Prisma migrations in
+`prisma/migrations/`.
 
 ## Current state
 
-There is no `prisma/migrations/` history. Production is reconciled from
-`prisma/schema.prisma` by the **Database schema** GitHub workflow, which:
+- `20261122000000_init` is the baseline migration generated from
+  `prisma/schema.prisma` when production already matched that schema.
+- The production database was marked as having that migration applied with
+  `prisma migrate resolve --applied`, not by executing its DDL.
+- The **Database schema** workflow now supports:
+  - `discover` — list Neon databases,
+  - `inspect` — run a read-only query,
+  - `preview` — print the database→schema diff,
+  - `baseline` — record the first migration as applied on an existing database,
+  - `recover` — mark a failed migration rolled back (`migration_name`), then rerun `apply`,\n  - `apply` — run `prisma migrate deploy` and verify `migrate status`.
 
-1. resolves a Neon database through the Neon API (no DB URL in the repo),
-2. can run `discover`, `inspect`, `preview` or `apply`,
-3. previews the SQL and refuses `--accept-data-loss` on apply,
-4. verifies that the database matches the schema afterwards.
+## Changing the schema
 
-This is acceptable while one maintainer applies schema changes during planned
-windows. It is not suitable for a team or for high-risk changes.
+1. Change `prisma/schema.prisma` locally.
+2. Generate a migration into a new timestamped directory:
+   ```bash
+   npx prisma migrate diff \
+     --from-migrations prisma/migrations \
+     --to-schema prisma/schema.prisma \
+     --script > prisma/migrations/<timestamp>_<name>/migration.sql
+   ```
+   For a dev database, `npx prisma migrate dev --name <name>` does this and
+   validates the SQL against a shadow database.
+3. Review the SQL. It must not contain destructive changes unless the PR
+   explicitly plans a backfill.
+4. Commit the migration with the schema change.
+5. Run the workflow in `preview` mode, then `apply` mode.
+6. Deploy code only after `apply` succeeds.
 
-## Rules for every schema change
+## Rules
 
-1. Run the workflow in `discover` mode and confirm the target database.
-2. Run `preview` and read the SQL. Stop if it drops a column, casts a column type
-   destructively, or renames a table.
-3. Run `apply`; it fails closed if data loss would be required.
-4. Deploy code that reads the new schema only after `apply` succeeds.
-5. Record the apply run ID in the PR description.
-
-## When to switch to real migrations
-
-Move to `prisma migrate deploy` when any of these becomes true:
-
-- more than one person can change the production schema,
-- a change needs a multi-step backfill or rename,
-- production data must be preserved through a type/cast change,
-- an auditable migration history is required for compliance.
-
-## Baseline procedure (future)
-
-1. Create `prisma/migrations/000000000000_init/migration.sql` from the current
-   schema using `prisma migrate diff --from-empty --to-schema`.
-2. Apply it to a Neon branch and verify with `prisma migrate diff --exit-code`.
-3. Mark the production database as baselined:
-   `prisma migrate resolve --applied 000000000000_init`.
-4. Replace the `db push` step in `db-schema.yml` with `prisma migrate deploy`.
-5. Keep the workflow's Neon API resolution and preview gate.
-
-Until that migration, CI must at least validate the schema on every change:
-`npx prisma validate` runs in the test job.
+- Never edit an already-applied migration.\n- Write migration files as UTF-8 **without a BOM**; a BOM makes Postgres reject the\n  first statement. If a migration fails, use the `recover` workflow mode before\n  retrying.
+- Never use `db push` against production.
+- Destructive changes need a multi-step plan: additive migration, backfill,
+  then a later cleanup migration.
+- Keep migrations SQL-only; data backfills belong in scripts run before the
+  cleanup migration.

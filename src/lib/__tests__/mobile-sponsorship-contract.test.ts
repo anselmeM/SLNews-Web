@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { toAdUnit, type SponsorshipRow } from "@/lib/sponsorship-ad-unit";
@@ -79,5 +81,30 @@ describe("mobile sponsorship contract", () => {
       Object.keys(properties).sort()
     );
     expect(eventFixture.type).toBe("impression");
+  });
+
+  it("generates a deterministic Dart fixture from the contract", () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "slnews-contract-"));
+    const output = path.join(tempDir, "mobile_contract.g.dart");
+    const script = path.join(
+      process.cwd(),
+      "contracts",
+      "scripts",
+      "generate-dart-contract.mjs"
+    );
+    try {
+      execFileSync(process.execPath, [script, "--output", output]);
+      const first = readFileSync(output, "utf8");
+      expect(first).toContain("const Set<String> adUnitContractFields");
+      expect(first).toContain('"placement"');
+      expect(first).toContain(
+        "const Map<String, dynamic> eventRequestContractFixture"
+      );
+
+      execFileSync(process.execPath, [script, "--output", output, "--check"]);
+      expect(readFileSync(output, "utf8")).toBe(first);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

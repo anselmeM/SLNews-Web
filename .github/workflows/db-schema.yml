@@ -1,35 +1,39 @@
 name: Database schema
 
-# Nothing in the deploy path applies Prisma schema changes. `next build` only
+# Nothing in the deploy path applies Prisma migrations. `next build` only
 # generates the client, `postinstall` runs `prisma generate`, and the `db push`
-# in ci.yml targets the throwaway CI database — so production drifts from
-# prisma/schema.prisma until somebody runs `db push` by hand. That is how the
-# RetentionDay table shipped in #83 while production kept answering
-# `{"error":"retention data unavailable"}`, silently collecting nothing.
+# in ci.yml targets the throwaway CI database. Production schema changes go
+# through this workflow: resolve the Neon database, preview, then run
+# `prisma migrate deploy` or baseline an existing database once.
 #
-# This workflow is that missing step, and the reason no database credential
-# lives in the repository: the connection string is resolved at run time from
-# the Neon API using the project's own key.
+# This workflow is also why no database credential lives in the repository:
+# the connection string is resolved at run time from the Neon API using the
+# project's own key.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "discover = list databases; inspect = read-only query; preview = print SQL diff; apply = run it"
+        description: "discover = list databases; inspect = read-only query; preview = print SQL diff; baseline = mark the first migration applied; recover = roll back a failed migration; apply = migrate deploy"
         type: choice
         options:
           - discover
           - inspect
           - preview
+          - baseline
+          - recover
           - apply
         default: discover
       database_name:
-        description: "Database to target (required for inspect, preview and apply)"
+        description: "Database to target (required for inspect, preview, baseline and apply)"
         required: false
       role_name:
         description: "Role to connect as (defaults to the database's owner)"
         required: false
       inspect_sql:
         description: "inspect mode: the query to run (executed in a READ ONLY transaction)"
+        required: false
+      migration_name:
+        description: "recover mode: failed migration name to mark rolled back"
         required: false
 
 # Two schema runs against the same database must never overlap.
@@ -52,6 +56,7 @@ jobs:
       DATABASE_NAME_INPUT: ${{ inputs.database_name }}
       ROLE_NAME_INPUT: ${{ inputs.role_name }}
       INSPECT_SQL: ${{ inputs.inspect_sql }}
+      MIGRATION_NAME_INPUT: ${{ inputs.migration_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -133,6 +138,34 @@ jobs:
           # Direct (unpooled) connection: DDL through the pooler is not reliable.
           echo "uri=${uri}" >> "$GITHUB_OUTPUT"
 
+      - name: Baseline the existing database
+        if: inputs.mode == 'baseline'
+        env:
+          DATABASE_URL: ${{ steps.target.outputs.uri }}
+        # Existing production databases predate migration history. Record the
+        # initial migration without executing its DDL, then verify with
+        # `migrate status` in apply mode.
+        run: |
+          set -euo pipefail
+          migration="$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -n 1)"
+          if [ -z "$migration" ]; then
+            echo "::error::No migration found under prisma/migrations."
+            exit 1
+          fi
+          npx prisma migrate resolve --applied "$migration"
+
+      - name: Mark a failed migration as rolled back
+        if: inputs.mode == 'recover'
+        env:
+          DATABASE_URL: ${{ steps.target.outputs.uri }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MIGRATION_NAME_INPUT}" ]; then
+            echo "::error::migration_name is required for mode=recover."
+            exit 1
+          fi
+          npx prisma migrate resolve --rolled-back "${MIGRATION_NAME_INPUT}"
+
       - name: Run a read-only query
         if: inputs.mode == 'inspect'
         env:
@@ -151,13 +184,13 @@ jobs:
           set -euo pipefail
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script
 
-      - name: Apply the schema
+      - name: Apply migrations
         if: inputs.mode == 'apply'
         env:
           DATABASE_URL: ${{ steps.target.outputs.uri }}
-        # No --accept-data-loss: if a change would drop data, Prisma refuses and
-        # this run fails instead of guessing on production.
-        run: npx prisma db push
+        # Migrations are additive by policy; this fails on drift or a missing
+        # baseline rather than guessing at production data.
+        run: npx prisma migrate deploy
 
       - name: Verify the database matches the schema
         if: inputs.mode == 'apply'
@@ -166,5 +199,6 @@ jobs:
         # Exits 2 — failing the step — if any drift remains.
         run: |
           set -euo pipefail
+          npx prisma migrate status
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script --exit-code
-          echo "Database matches prisma/schema.prisma."
+          echo "Database matches prisma/schema.prisma and has no pending migrations."
