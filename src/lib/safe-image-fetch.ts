@@ -120,7 +120,13 @@ const MAX_BYTES = 8 * 1024 * 1024;
 function pinnedDispatcher(pinned: PinnedImageUrl): Agent {
   return new Agent({
     connect: {
-      lookup: (_hostname, _options, callback) => {
+      lookup: (_hostname, options, callback) => {
+        // Node's custom lookup has two callback contracts: a single address, or
+        // an address array when `options.all` is set (which undici does).
+        if ((options as { all?: boolean } | undefined)?.all) {
+          callback(null, [{ address: pinned.address, family: pinned.family }]);
+          return;
+        }
         callback(null, pinned.address, pinned.family);
       },
     },
