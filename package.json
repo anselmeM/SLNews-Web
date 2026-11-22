@@ -18,7 +18,9 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "seed": "tsx prisma/seed.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "contracts:generate": "node contracts/scripts/generate-dart-contract.mjs",
+    "contracts:check": "node contracts/scripts/generate-dart-contract.mjs --check"
   },
   "dependencies": {
     "@clerk/backend": "^3.17.1",

@@ -26,3 +26,17 @@ Flutter app and SLNews-Web tests.
 
 The app must treat absent/null optional fields as empty. Unknown response fields
 are ignored for forward compatibility.
+## Generating the Dart fixture
+
+The Flutter contract test must not copy these fixtures by hand. From the Web
+repo root:
+
+```bash
+npm run contracts:generate
+npm run contracts:check
+```
+
+By default the generated file is written to
+`../SLNews-App/test/contracts/mobile_contract.g.dart`. Commit that generated
+file whenever the contract changes. The App test imports it directly, so a
+contract/schema drift fails rather than going unnoticed.
