@@ -14,7 +14,7 @@ Production schema history is tracked with Prisma migrations in
   - `inspect` — run a read-only query,
   - `preview` — print the database→schema diff,
   - `baseline` — record the first migration as applied on an existing database,
-  - `apply` — run `prisma migrate deploy` and verify `migrate status`.
+  - `recover` — mark a failed migration rolled back (`migration_name`), then rerun `apply`,\n  - `apply` — run `prisma migrate deploy` and verify `migrate status`.
 
 ## Changing the schema
 
@@ -36,7 +36,7 @@ Production schema history is tracked with Prisma migrations in
 
 ## Rules
 
-- Never edit an already-applied migration.
+- Never edit an already-applied migration.\n- Write migration files as UTF-8 **without a BOM**; a BOM makes Postgres reject the\n  first statement. If a migration fails, use the `recover` workflow mode before\n  retrying.
 - Never use `db push` against production.
 - Destructive changes need a multi-step plan: additive migration, backfill,
   then a later cleanup migration.

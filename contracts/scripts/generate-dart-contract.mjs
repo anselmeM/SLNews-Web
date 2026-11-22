@@ -11,7 +11,8 @@
  *   node contracts/scripts/generate-dart-contract.mjs --check
  *   node contracts/scripts/generate-dart-contract.mjs --output ../SLNews-App/test/contracts/mobile_contract.g.dart
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -120,7 +121,23 @@ ${eventEntries}
 };
 `;
 
+function formatGenerated(file) {
+  // The app CI runs `dart format --set-exit-if-changed`; format the generated
+  // file when Dart is installed. Web CI has no Flutter SDK, so a missing dart
+  // binary simply leaves the raw fixture (the test compares generated content).
+  try {
+    execSync(`dart format ${JSON.stringify(file)}`, { stdio: "ignore" });
+  } catch {
+    // No Dart SDK in this environment.
+  }
+}
+
 if (checkOnly) {
+  const expectedFile = `${output}.check`;
+  writeFileSync(expectedFile, dart, "utf8");
+  formatGenerated(expectedFile);
+  const expected = readFileSync(expectedFile, "utf8");
+  unlinkSync(expectedFile);
   let current = "";
   try {
     current = readFileSync(output, "utf8");
@@ -128,7 +145,7 @@ if (checkOnly) {
     console.error(`Generated contract is missing: ${output}`);
     process.exit(1);
   }
-  if (current !== dart) {
+  if (current !== expected) {
     console.error(`Generated contract is stale: ${output}`);
     console.error("Run: node contracts/scripts/generate-dart-contract.mjs");
     process.exit(1);
@@ -138,4 +155,5 @@ if (checkOnly) {
 }
 
 writeFileSync(output, dart, "utf8");
+formatGenerated(output);
 process.stdout.write(`Wrote ${output}\n`);
