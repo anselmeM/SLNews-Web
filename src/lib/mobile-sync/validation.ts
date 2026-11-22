@@ -45,6 +45,9 @@ export type ValidationResult<T> =
       size?: SizeViolation;
     };
 
+/** Client clocks may run slightly fast; anything beyond this is not trusted. */
+const MAX_FUTURE_SKEW_MS = 5 * 60_000;
+
 export const FOLLOW_KINDS = [
   "team",
   "league",
@@ -173,7 +176,10 @@ function readInstant(
     add(field, "must be an ISO-8601 UTC timestamp with milliseconds");
     return null;
   }
-  return parsed;
+  // Client timestamps drive last-write-wins. A fast or malicious clock must not
+  // be able to park a row permanently in the future for every other device.
+  const latest = new Date(Date.now() + MAX_FUTURE_SKEW_MS);
+  return parsed > latest ? latest : parsed;
 }
 
 function readDeleted(

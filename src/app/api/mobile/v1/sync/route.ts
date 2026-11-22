@@ -119,14 +119,15 @@ export async function GET(request: Request) {
 /** Batched push: last-write-wins per row, tombstones, per-row rejections. */
 export async function POST(request: Request) {
   try {
-    // Read the body first: the byte cap is answerable without touching the DB,
-    // and a request that size would otherwise be parsed and thrown away.
+    // Authenticate and spend one rate-limit token before reading or parsing the
+    // body. Otherwise an unauthenticated caller can repeatedly make the
+    // function parse a 200 KB payload without consuming an authenticated bucket.
+    const { response, user } = await resolveCaller(request);
+    if (response || !user) return response ?? unauthorized();
+
     const rawBody = await request.text();
     const payload = parsePushBody(rawBody);
     if (!payload.ok) return invalidRequest(payload);
-
-    const { response, user } = await resolveCaller(request);
-    if (response || !user) return response ?? unauthorized();
 
     const result = await applySync(
       db as unknown as MobileSyncDb,

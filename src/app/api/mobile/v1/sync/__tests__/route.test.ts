@@ -557,16 +557,19 @@ describe("POST /api/mobile/v1/sync — validation", () => {
     expect(response.status).toBe(413);
   });
 
-  it("answers 413 before spending a rate-limit token", async () => {
+  it("authenticates and rate-limits before answering 413", async () => {
     const follows = Array.from({ length: 501 }, (_, index) => ({
       targetId: `team:t${index}`,
       kind: "team",
       updatedAt: T0,
     }));
 
-    await POST(request("POST", { headers: BEARER, body: { follows } }));
+    const response = await POST(
+      request("POST", { headers: BEARER, body: { follows } })
+    );
 
-    expect(rateLimit).not.toHaveBeenCalled();
+    expect(response.status).toBe(413);
+    expect(rateLimit).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -225,6 +225,16 @@ async function chunkedWrite<T>(
   rows: T[]
 ): Promise<void> {
   if (rows.length === 0) return;
+  const allowed = SYNC_TABLES[table];
+  if (
+    !allowed ||
+    allowed.keyColumn !== keyColumn ||
+    allowed.columns.join(",") !== columns.join(",")
+  ) {
+    // Tables and columns are interpolated as SQL identifiers (Prisma.raw).
+    // Keep that safe by making the only accepted values module constants.
+    throw new Error(`Refusing unknown sync table shape: ${table}`);
+  }
 
   const columnList = columns.map((column) => `"${column}"`).join(", ");
   // `excluded` exists only inside `ON CONFLICT DO UPDATE`; here the incoming row
@@ -447,6 +457,16 @@ const FOLLOW_COLUMNS = [
   "updatedAt",
   "deletedAt",
 ];
+
+/** The only table/column shapes chunkedWrite may interpolate into raw SQL. */
+const SYNC_TABLES: Record<
+  string,
+  { keyColumn: string; columns: readonly string[] }
+> = {
+  MobileBookmark: { keyColumn: "itemId", columns: BOOKMARK_COLUMNS },
+  MobileReaction: { keyColumn: "itemId", columns: REACTION_COLUMNS },
+  MobileFollow: { keyColumn: "targetId", columns: FOLLOW_COLUMNS },
+};
 
 function toStateBookmark(row: BookmarkSnapshot): BookmarkDbRow {
   return { ...row, deletedAt: deletedAtFor(row) };

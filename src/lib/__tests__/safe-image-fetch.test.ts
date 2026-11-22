@@ -35,6 +35,13 @@ describe("safe image fetch", () => {
     ).rejects.toBeInstanceOf(UnsafeImageUrlError);
   });
 
+  it("returns the validated address for a public literal", async () => {
+    const pinned = await assertPublicImageUrl("https://8.8.8.8/a.jpg");
+    expect(pinned.url.hostname).toBe("8.8.8.8");
+    expect(pinned.address).toBe("8.8.8.8");
+    expect(pinned.family).toBe(4);
+  });
+
   it("rejects non-http schemes", async () => {
     await expect(
       assertPublicImageUrl("file:///etc/passwd")
