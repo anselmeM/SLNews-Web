@@ -14,11 +14,12 @@ import { NextResponse } from "next/server";
 import { adminKeyMatches } from "@/lib/admin-key";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
+import { toAdUnit, type SponsorshipRow } from "@/lib/sponsorship-ad-unit";
 import {
   revalidateSponsorships,
   SPONSORSHIPS_TAG,
 } from "@/lib/sponsorship-cache";
-import { createEventToken, eventTokenTtlMs } from "@/lib/sponsorship-events";
+import { createEventToken } from "@/lib/sponsorship-events";
 import { rotateSponsorships } from "@/lib/sponsorship-rotation";
 import {
   asDatabasePlacement,
@@ -36,28 +37,9 @@ function noStore(body: unknown, status = 200): NextResponse {
   });
 }
 
-type Row = {
-  id: string;
-  placement: string;
-  advertiser: string;
-  headline: string;
-  body: string;
-  ctaLabel: string;
-  ctaUrl: string;
-  brandHex: string;
-  brandAccentHex: string;
-  assetLabel: string | null;
-  disclosure: string | null;
-  imageUrl: string | null;
-  altText: string | null;
-  priority: number;
-  weight: number;
-  maxImpressions: number | null;
-  dailyImpressionCap: number | null;
-  impressions: number;
-};
-
-async function loadRowsUncached(placement: string | null): Promise<Row[]> {
+async function loadRowsUncached(
+  placement: string | null
+): Promise<SponsorshipRow[]> {
   const now = new Date();
   const rows = (await db.sponsorship.findMany({
     where: {
@@ -69,7 +51,7 @@ async function loadRowsUncached(placement: string | null): Promise<Row[]> {
     },
     orderBy: [{ priority: "desc" }, { startsAt: "desc" }],
     take: 50,
-  })) as Row[];
+  })) as SponsorshipRow[];
 
   const withinLifetimeCap = rows.filter(
     (row) =>
@@ -108,33 +90,10 @@ const loadRowsCached = unstable_cache(loadRowsUncached, [WHERE, "placement"], {
 });
 
 /** Tests get an uncached read so each mocked DB case is independent. */
-function loadRows(placement: string | null): Promise<Row[]> {
+function loadRows(placement: string | null): Promise<SponsorshipRow[]> {
   return process.env.NODE_ENV === "test"
     ? loadRowsUncached(placement)
     : loadRowsCached(placement);
-}
-
-/** AdUnit-shaped payload the Flutter app already renders. */
-function toAdUnit(row: Row, eventToken: string | null) {
-  return {
-    id: row.id,
-    placement: row.placement,
-    headline: row.headline,
-    body: row.body,
-    ctaLabel: row.ctaLabel,
-    advertiser: row.advertiser,
-    brandHex: row.brandHex,
-    brandAccentHex: row.brandAccentHex,
-    assetLabel: row.assetLabel,
-    disclosure: row.disclosure,
-    imageUrl: row.imageUrl,
-    altText: row.altText,
-    targetUrl: row.ctaUrl,
-    eventToken,
-    eventTokenExpiresAt: eventToken
-      ? new Date(Date.now() + eventTokenTtlMs()).toISOString()
-      : null,
-  };
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -191,7 +150,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         disclosure:
           parsed.value.disclosure ?? `Sponsored by ${parsed.value.advertiser}`,
       },
-    })) as Row;
+    })) as SponsorshipRow;
     revalidateSponsorships();
     return noStore(toAdUnit(created, createEventToken(created.id)), 201);
   } catch (error) {

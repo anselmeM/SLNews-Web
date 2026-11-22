@@ -1,0 +1,393 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SLNews Mobile API — Sponsorships",
+    "version": "1.0.0",
+    "description": "Canonical contract for mobile sponsorship delivery, measurement and reporting. The Flutter app and SLNews-Web must keep fixtures and payloads aligned with this document."
+  },
+  "servers": [
+    {
+      "url": "https://sl-news.vercel.app",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/api/mobile/v1/sponsorships": {
+      "get": {
+        "summary": "Active sold sponsorship units for a placement",
+        "parameters": [
+          {
+            "name": "placement",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Placement"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active units; empty when none are live.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AdUnit"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a sold campaign (admin)",
+        "security": [{ "AdminKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SponsorshipInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created campaign",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdUnit"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/mobile/v1/sponsorships/events": {
+      "post": {
+        "summary": "Record a verified impression or tap",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event accepted or safely ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/mobile/v1/sponsorships/report": {
+      "get": {
+        "summary": "Date-bounded delivery report (admin)",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["json", "csv"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Daily totals and per-campaign rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/mobile/v1/sponsorships/{id}": {
+      "patch": {
+        "summary": "Change lifecycle fields (admin)",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated lifecycle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "id": { "type": "string" },
+                    "active": { "type": "boolean" },
+                    "endsAt": {
+                      "type": ["string", "null"],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Archive a campaign (admin)",
+        "security": [{ "AdminKey": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Campaign archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "id": { "type": "string" },
+                    "active": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-admin-key"
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Request rejected",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Placement": {
+        "type": "string",
+        "enum": ["feed", "sports_stream", "article_end"]
+      },
+      "AdUnit": {
+        "type": "object",
+        "required": [
+          "id",
+          "placement",
+          "headline",
+          "body",
+          "ctaLabel",
+          "advertiser",
+          "brandHex",
+          "brandAccentHex"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "placement": { "$ref": "#/components/schemas/Placement" },
+          "headline": { "type": "string" },
+          "body": { "type": "string" },
+          "ctaLabel": { "type": "string" },
+          "advertiser": { "type": "string" },
+          "brandHex": { "type": "string" },
+          "brandAccentHex": { "type": "string" },
+          "assetLabel": { "type": ["string", "null"] },
+          "disclosure": { "type": ["string", "null"] },
+          "imageUrl": { "type": ["string", "null"] },
+          "altText": { "type": ["string", "null"] },
+          "targetUrl": { "type": ["string", "null"] },
+          "eventToken": { "type": ["string", "null"] },
+          "eventTokenExpiresAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      },
+      "SponsorshipInput": {
+        "type": "object",
+        "required": [
+          "placement",
+          "advertiser",
+          "headline",
+          "body",
+          "ctaLabel",
+          "ctaUrl"
+        ],
+        "properties": {
+          "placement": { "$ref": "#/components/schemas/Placement" },
+          "advertiser": { "type": "string", "maxLength": 80 },
+          "headline": { "type": "string", "maxLength": 40 },
+          "body": { "type": "string", "maxLength": 80 },
+          "ctaLabel": { "type": "string", "maxLength": 18 },
+          "ctaUrl": { "type": "string", "maxLength": 500 },
+          "brandHex": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "brandAccentHex": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "assetLabel": { "type": ["string", "null"] },
+          "disclosure": { "type": ["string", "null"] },
+          "imageUrl": { "type": ["string", "null"] },
+          "altText": { "type": ["string", "null"] },
+          "startsAt": { "type": ["string", "null"], "format": "date-time" },
+          "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "priority": { "type": "integer" },
+          "weight": { "type": "integer" },
+          "maxImpressions": { "type": ["integer", "null"] },
+          "dailyImpressionCap": { "type": ["integer", "null"] }
+        }
+      },
+      "EventRequest": {
+        "type": "object",
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["impression", "tap"] },
+          "eventId": { "type": "string" },
+          "token": { "type": "string" }
+        }
+      },
+      "EventResponse": {
+        "type": "object",
+        "required": ["ok", "counted"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "counted": { "type": "boolean" }
+        }
+      },
+      "ReportEnvelope": {
+        "type": "object",
+        "required": ["from", "to", "items"],
+        "properties": {
+          "from": { "type": "string", "format": "date-time" },
+          "to": { "type": "string", "format": "date-time" },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ReportItem" }
+          }
+        }
+      },
+      "ReportItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "placement",
+          "advertiser",
+          "headline",
+          "active",
+          "startsAt",
+          "endsAt",
+          "impressions",
+          "taps",
+          "ctr",
+          "daily"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "placement": { "$ref": "#/components/schemas/Placement" },
+          "advertiser": { "type": "string" },
+          "headline": { "type": "string" },
+          "active": { "type": "boolean" },
+          "startsAt": { "type": "string", "format": "date-time" },
+          "endsAt": { "type": ["string", "null"], "format": "date-time" },
+          "impressions": { "type": "integer" },
+          "taps": { "type": "integer" },
+          "ctr": { "type": "number" },
+          "daily": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["day", "impressions", "taps"],
+              "properties": {
+                "day": { "type": "string", "format": "date" },
+                "impressions": { "type": "integer" },
+                "taps": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  }
+}
