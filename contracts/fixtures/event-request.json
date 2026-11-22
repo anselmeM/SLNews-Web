@@ -1,0 +1,6 @@
+{
+  "id": "sp_contract_fixture",
+  "type": "impression",
+  "eventId": "ev_contract_fixture_0001",
+  "token": "signed-event-token"
+}

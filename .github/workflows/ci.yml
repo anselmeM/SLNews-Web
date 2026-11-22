@@ -57,6 +57,7 @@ jobs:
           node-version-file: package.json
           cache: npm
       - run: npm ci
+      - run: npx prisma validate
       - run: npx prisma generate
       - run: npm run test:coverage
 

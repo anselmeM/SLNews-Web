@@ -1,0 +1,17 @@
+{
+  "id": "sp_contract_fixture",
+  "placement": "feed",
+  "advertiser": "Contract Partner",
+  "headline": "CONTRACT FIXTURE",
+  "body": "One canonical AdUnit shape",
+  "ctaLabel": "Open",
+  "brandHex": "#0B6FD1",
+  "brandAccentHex": "#2E9BF5",
+  "assetLabel": "NLe 20",
+  "disclosure": "Sponsored by Contract Partner",
+  "imageUrl": "https://store.public.blob.vercel-storage.com/sponsorships/contract.jpg",
+  "altText": "Contract Partner logo",
+  "targetUrl": "https://example.com/offer",
+  "eventToken": "signed-event-token",
+  "eventTokenExpiresAt": "2026-11-22T00:00:00.000Z"
+}
