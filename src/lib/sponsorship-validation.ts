@@ -1,11 +1,43 @@
-/** Renderable placements. Keep aligned with the Flutter AdPlacement enum. */
+import {
+  validateAdCategory,
+  type AdCategoryValue,
+} from "@/lib/sponsorship-policy";
+
+/**
+ * Renderable placements. Keep aligned with the Flutter AdPlacement enum.
+ *
+ * `feed` is the For You surface; `news_stream` is the separate News surface so
+ * the two no longer compete for the same two feed slots. `sports_stream` and
+ * `article_end` remain singleton placements.
+ */
 export const SPONSORSHIP_PLACEMENTS = [
   "feed",
+  "news_stream",
   "sports_stream",
   "article_end",
 ] as const;
 
 export type SponsorshipPlacementValue = (typeof SPONSORSHIP_PLACEMENTS)[number];
+
+/**
+ * How many units the server returns for a placement. The app renders exactly
+ * the returned list in order, so this is the selection contract: `feed` gets at
+ * most two rotated units, and every other placement gets at most one (the first
+ * unit in the rotated list). The app must not pick from a larger list.
+ */
+export const SPONSORSHIP_SLOT_CAPACITY: Record<
+  SponsorshipPlacementValue,
+  number
+> = {
+  feed: 2,
+  news_stream: 1,
+  sports_stream: 1,
+  article_end: 1,
+};
+
+export function slotCapacity(placement: SponsorshipPlacementValue): number {
+  return SPONSORSHIP_SLOT_CAPACITY[placement];
+}
 
 export const SPONSORSHIP_LIMITS = {
   advertiser: 80,
@@ -24,6 +56,8 @@ export const SPONSORSHIP_LIMITS = {
 
 export type SponsorshipInput = {
   placement: SponsorshipPlacementValue;
+  /** Ad policy category. Required for new/edited campaigns; see sponsorship-policy. */
+  adCategory: AdCategoryValue;
   advertiser: string;
   headline: string;
   body: string;
@@ -141,6 +175,7 @@ export function parseSponsorshipInput(
 ): SponsorshipParseResult {
   const errors: string[] = [];
   const placement = str(body, "placement");
+  const adCategory = validateAdCategory(body.adCategory);
   const advertiser = str(body, "advertiser");
   const headline = str(body, "headline");
   const bodyCopy = str(body, "body");
@@ -152,6 +187,9 @@ export function parseSponsorshipInput(
 
   if (!isPlacement(placement)) {
     errors.push("Choose a valid placement.");
+  }
+  if (!adCategory.ok) {
+    errors.push(adCategory.error);
   }
   if (!advertiser || advertiser.length > SPONSORSHIP_LIMITS.advertiser) {
     errors.push(
@@ -229,6 +267,7 @@ export function parseSponsorshipInput(
     ok: true,
     value: {
       placement: placement as SponsorshipPlacementValue,
+      adCategory: adCategory.ok ? adCategory.value : "other",
       advertiser,
       headline,
       body: bodyCopy,

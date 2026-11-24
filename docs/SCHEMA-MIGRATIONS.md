@@ -9,6 +9,11 @@ Production schema history is tracked with Prisma migrations in
   `prisma/schema.prisma` when production already matched that schema.
 - The production database was marked as having that migration applied with
   `prisma migrate resolve --applied`, not by executing its DDL.
+- `20261123150000_sponsorship_reach_and_policy` is the first ordinary additive
+  migration: nullable `Sponsorship.adCategory` (ad policy category) and
+  `SponsorshipEvent.installIdHash` (HMAC of the app's anonymous install id) plus
+  the `(sponsorshipId, installIdHash)` index used by reach reporting. No data is
+  rewritten and nothing is dropped.
 - The **Database schema** workflow now supports:
   - `discover` — list Neon databases,
   - `inspect` — run a read-only query,

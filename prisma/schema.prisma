@@ -423,10 +423,15 @@ model MobileDevice {
 /// seeded `AdUnit`, so the app renders both with one widget.
 model Sponsorship {
   id                 String    @id @default(cuid())
-  /// Ad surface: feed | sports_stream | article_end. Validated by the shared
-  /// placement list in code; kept as text so db push cannot require a destructive
-  /// enum cast on existing rows.
+  /// Ad surface: feed | news_stream | sports_stream | article_end. Validated by
+  /// the shared placement list in code; kept as text so db push cannot require a
+  /// destructive enum cast on existing rows. `feed` is For You, `news_stream` is
+  /// the separate News surface.
   placement          String
+  /// Ad policy category, allow-listed in `src/lib/sponsorship-policy.ts`.
+  /// Nullable only for rows created before the policy existed; the API and admin
+  /// form require a category for every new or edited campaign.
+  adCategory         String?
   advertiser         String
   headline           String
   body               String
@@ -483,10 +488,15 @@ model SponsorshipEvent {
   id            String      @id
   sponsorshipId String
   type          String
+  /// HMAC-SHA256 of the app's anonymous install id (never the raw id). Null for
+  /// legacy events and events posted without an install id; indexed so the
+  /// report can count unique reach per campaign over a date range.
+  installIdHash String?
   createdAt     DateTime    @default(now())
   sponsorship   Sponsorship @relation(fields: [sponsorshipId], references: [id], onDelete: Cascade)
 
   @@index([sponsorshipId, createdAt])
+  @@index([sponsorshipId, installIdHash])
   @@index([createdAt])
 }
 

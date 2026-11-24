@@ -14,7 +14,8 @@
   "paths": {
     "/api/mobile/v1/sponsorships": {
       "get": {
-        "summary": "Active sold sponsorship units for a placement",
+        "summary": "Server-selected active sold sponsorship units for a placement",
+        "description": "The server is the slot selector: `feed` returns at most 2 rotated units; `news_stream`, `sports_stream` and `article_end` return at most 1. The app renders exactly the returned list in the returned order and must not choose from a larger list. Priority is strict within the hourly rotation; weight breaks ties.",
         "parameters": [
           {
             "name": "placement",
@@ -27,7 +28,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Active units; empty when none are live.",
+            "description": "Active units; empty when none are live. At most 2 for `feed`, at most 1 for the singleton placements (at most 2 when `placement` is omitted).",
             "content": {
               "application/json": {
                 "schema": {
@@ -242,7 +243,8 @@
     "schemas": {
       "Placement": {
         "type": "string",
-        "enum": ["feed", "sports_stream", "article_end"]
+        "description": "Ad surface. `feed` is For You; `news_stream` is the separate News surface; `sports_stream` and `article_end` are singleton placements.",
+        "enum": ["feed", "news_stream", "sports_stream", "article_end"]
       },
       "AdUnit": {
         "type": "object",
@@ -281,6 +283,7 @@
         "type": "object",
         "required": [
           "placement",
+          "adCategory",
           "advertiser",
           "headline",
           "body",
@@ -289,6 +292,10 @@
         ],
         "properties": {
           "placement": { "$ref": "#/components/schemas/Placement" },
+          "adCategory": {
+            "type": "string",
+            "description": "Ad policy category. Required for new/edited campaigns; must be on the server allow-list (see docs/AD-POLICY.md). Prohibited categories are rejected."
+          },
           "advertiser": { "type": "string", "maxLength": 80 },
           "headline": { "type": "string", "maxLength": 40 },
           "body": { "type": "string", "maxLength": 80 },
@@ -317,8 +324,19 @@
         "properties": {
           "id": { "type": "string" },
           "type": { "type": "string", "enum": ["impression", "tap"] },
-          "eventId": { "type": "string" },
-          "token": { "type": "string" }
+          "eventId": {
+            "type": "string",
+            "description": "Client-generated dedupe key. Every new impression/tap uses a fresh id; a retry reuses the same id so the server never double-counts."
+          },
+          "token": {
+            "type": "string",
+            "description": "Short-lived signed token from the ad read response."
+          },
+          "installId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "description": "Stable anonymous installation id. App builds send 32 lowercase hex characters; the server accepts a URL-safe token of 16-128 characters and stores only an HMAC-SHA256 hash (never the raw id) for unique reach and frequency reporting. Optional for legacy builds."
+          }
         }
       },
       "EventResponse": {
@@ -346,6 +364,7 @@
         "required": [
           "id",
           "placement",
+          "adCategory",
           "advertiser",
           "headline",
           "active",
@@ -354,11 +373,17 @@
           "impressions",
           "taps",
           "ctr",
+          "reach",
+          "frequency",
           "daily"
         ],
         "properties": {
           "id": { "type": "string" },
           "placement": { "$ref": "#/components/schemas/Placement" },
+          "adCategory": {
+            "type": ["string", "null"],
+            "description": "Ad policy category; null for campaigns that predate the policy."
+          },
           "advertiser": { "type": "string" },
           "headline": { "type": "string" },
           "active": { "type": "boolean" },
@@ -367,6 +392,14 @@
           "impressions": { "type": "integer" },
           "taps": { "type": "integer" },
           "ctr": { "type": "number" },
+          "reach": {
+            "type": ["integer", "null"],
+            "description": "Distinct anonymous installs (hashed installIdHash) with at least one impression in the date range. Null when no event in the range carries an identifiable reach id (legacy events or builds without an install id)."
+          },
+          "frequency": {
+            "type": ["number", "null"],
+            "description": "Average impressions per reached install: impressions / reach. Null when reach is null."
+          },
           "daily": {
             "type": "array",
             "items": {

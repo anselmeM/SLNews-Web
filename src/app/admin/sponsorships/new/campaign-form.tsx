@@ -3,9 +3,19 @@
 import { useMemo, useState } from "react";
 import { createCampaign, updateCampaign } from "../actions";
 import { parseCampaignForm } from "@/lib/admin/sponsorship-form";
+import {
+  AD_CATEGORY_OPTIONS,
+  AD_POLICY_DOC_URL,
+  AD_POLICY_NOTE,
+} from "@/lib/sponsorship-policy";
+import {
+  SPONSORSHIP_SLOT_CAPACITY,
+  SPONSORSHIP_PLACEMENTS,
+} from "@/lib/sponsorship-validation";
 
 type FormState = {
   placement: string;
+  adCategory: string;
   advertiser: string;
   headline: string;
   body: string;
@@ -27,6 +37,7 @@ type FormState = {
 
 const defaults: FormState = {
   placement: "feed",
+  adCategory: "",
   advertiser: "",
   headline: "",
   body: "",
@@ -106,10 +117,48 @@ export function CampaignForm({
           onChange={set("placement")}
           className="w-full rounded-lg border px-3 py-2"
         >
-          <option value="feed">feed</option>
-          <option value="sports_stream">sports_stream</option>
-          <option value="article_end">article_end</option>
+          {SPONSORSHIP_PLACEMENTS.map((placement) => (
+            <option key={placement} value={placement}>
+              {placement} (max {SPONSORSHIP_SLOT_CAPACITY[placement]} unit
+              {SPONSORSHIP_SLOT_CAPACITY[placement] === 1 ? "" : "s"})
+            </option>
+          ))}
         </select>
+        <p className="text-[11px] text-gray-500">
+          The server selects the units it returns: two for For You and one for
+          every other placement. The app renders exactly that list in order.
+        </p>
+
+        <label className="block text-xs font-semibold" htmlFor="adCategory">
+          Ad category
+        </label>
+        <select
+          id="adCategory"
+          name="adCategory"
+          value={form.adCategory}
+          onChange={set("adCategory")}
+          className="w-full rounded-lg border px-3 py-2"
+          required
+        >
+          <option value="">Select a category…</option>
+          {AD_CATEGORY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-gray-500">
+          {AD_POLICY_NOTE}{" "}
+          <a
+            className="underline"
+            href={AD_POLICY_DOC_URL}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Read the ad policy
+          </a>
+          .
+        </p>
 
         {textFields.map(([key, label, max, required]) => (
           <div key={key}>

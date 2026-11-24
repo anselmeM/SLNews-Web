@@ -164,6 +164,9 @@ export async function duplicateCampaign(formData: FormData): Promise<void> {
   const copy = await db.sponsorship.create({
     data: {
       placement: source.placement,
+      // Legacy rows may predate the category policy; the copy is a paused draft
+      // and must still carry a category so a later edit cannot inherit null.
+      adCategory: source.adCategory ?? "other",
       advertiser: source.advertiser,
       headline: source.headline,
       body: source.body,
@@ -289,6 +292,7 @@ export async function seedDemoCampaign(): Promise<void> {
   const created = await db.sponsorship.create({
     data: {
       placement: asDatabasePlacement("feed"),
+      adCategory: "other",
       advertiser: "SLNews Demo",
       headline: "DEMO CAMPAIGN",
       body: "Inserted from the admin console",

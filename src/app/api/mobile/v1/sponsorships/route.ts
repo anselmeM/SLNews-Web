@@ -1,13 +1,18 @@
 /**
  * `/api/mobile/v1/sponsorships` — directly sold sponsorship units.
  *
+ * The app renders exactly the list this endpoint returns, in order. The server
+ * is the slot selector: `feed` returns at most two rotated units and every other
+ * placement (`news_stream`, `sports_stream`, `article_end`) returns at most one.
+ * The app must not pick from a larger list.
+ *
  * The app renders house ads from its seed; this endpoint lets a sold creative be
  * inserted per placement without shipping a release. Reads are public and cached
  * briefly under the `sponsorships` tag; writes need `x-admin-key` matching
  * SPONSORSHIP_ADMIN_KEY.
  *
  * GET ?placement=feed -> { items: AdUnit-shaped[] } (only active, in window)
- * POST {placement, advertiser, headline, body, ctaLabel, ctaUrl, ...} -> 201
+ * POST {placement, adCategory, advertiser, headline, body, ctaLabel, ctaUrl, ...} -> 201
  */
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
@@ -24,11 +29,24 @@ import { rotateSponsorships } from "@/lib/sponsorship-rotation";
 import {
   asDatabasePlacement,
   isPlacement,
+  slotCapacity,
   parseSponsorshipInput,
 } from "@/lib/sponsorship-validation";
 
 const WHERE = "api/mobile/v1/sponsorships";
-const MAX_ITEMS = 6;
+
+/**
+ * Unscoped reads (no `placement`) are a legacy shape: the app always scopes its
+ * requests, so return at most the largest single-placement capacity instead of
+ * a mixed six-unit list.
+ */
+const UNSCOPED_SLOT_LIMIT = 2;
+
+function slotLimit(placement: string | null): number {
+  return placement === null || !isPlacement(placement)
+    ? UNSCOPED_SLOT_LIMIT
+    : slotCapacity(placement);
+}
 
 function noStore(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
@@ -104,7 +122,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const rows = rotateSponsorships(await loadRows(placement), MAX_ITEMS);
+    const rows = rotateSponsorships(
+      await loadRows(placement),
+      slotLimit(placement)
+    );
     return NextResponse.json(
       {
         items: rows.map((row) => toAdUnit(row, createEventToken(row.id))),

@@ -31,6 +31,13 @@ export default async function SponsorshipReportPage({
     0
   );
   const totalTaps = items.reduce((sum, item) => sum + item.taps, 0);
+  // Reach is per campaign and an install can appear in several campaigns, so the
+  // dashboard total is a sum of campaign reach, not a de-duplicated audience.
+  const totalReach = items.reduce((sum, item) => sum + (item.reach ?? 0), 0);
+  const totalFrequency =
+    totalReach > 0 && totalImpressions > 0
+      ? totalImpressions / totalReach
+      : null;
   const fromValue = range.from.toISOString().slice(0, 10);
   const toValue = range.to.toISOString().slice(0, 10);
 
@@ -75,12 +82,34 @@ export default async function SponsorshipReportPage({
         </button>
       </form>
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-2xl border border-outline-variant/30 p-4">
           <p className="text-xs uppercase text-on-surface-variant">
             Impressions
           </p>
           <p className="text-2xl font-bold">{money(totalImpressions)}</p>
+        </div>
+        <div className="rounded-2xl border border-outline-variant/30 p-4">
+          <p className="text-xs uppercase text-on-surface-variant">
+            Reach (Σ campaigns)
+          </p>
+          <p className="text-2xl font-bold">
+            {totalReach > 0 ? money(totalReach) : "—"}
+          </p>
+          <p className="text-[10px] text-on-surface-variant">
+            Distinct anonymous installs per campaign
+          </p>
+        </div>
+        <div className="rounded-2xl border border-outline-variant/30 p-4">
+          <p className="text-xs uppercase text-on-surface-variant">
+            Frequency
+          </p>
+          <p className="text-2xl font-bold">
+            {totalFrequency === null ? "—" : totalFrequency.toFixed(2)}
+          </p>
+          <p className="text-[10px] text-on-surface-variant">
+            Impressions ÷ reach
+          </p>
         </div>
         <div className="rounded-2xl border border-outline-variant/30 p-4">
           <p className="text-xs uppercase text-on-surface-variant">Taps</p>
@@ -102,13 +131,17 @@ export default async function SponsorshipReportPage({
           className="min-w-full text-left text-xs"
         >
           <caption className="sr-only">
-            Impressions, taps and CTR for the selected date range
+            Impressions, reach, frequency, taps and CTR for the selected date
+            range
           </caption>
           <thead className="bg-surface-container-low">
             <tr>
               <th className="p-2">Advertiser</th>
+              <th className="p-2">Category</th>
               <th className="p-2">Placement</th>
               <th className="p-2">Impr.</th>
+              <th className="p-2">Reach</th>
+              <th className="p-2">Freq.</th>
               <th className="p-2">Taps</th>
               <th className="p-2">CTR</th>
             </tr>
@@ -117,8 +150,13 @@ export default async function SponsorshipReportPage({
             {items.map((item) => (
               <tr key={item.id} className="border-t border-outline-variant/20">
                 <td className="p-2 font-medium">{item.advertiser}</td>
+                <td className="p-2">{item.adCategory ?? "—"}</td>
                 <td className="p-2">{item.placement}</td>
                 <td className="p-2">{item.impressions}</td>
+                <td className="p-2">{item.reach ?? "—"}</td>
+                <td className="p-2">
+                  {item.frequency === null ? "—" : item.frequency.toFixed(2)}
+                </td>
                 <td className="p-2">{item.taps}</td>
                 <td className="p-2">
                   {item.impressions > 0
@@ -132,9 +170,11 @@ export default async function SponsorshipReportPage({
       </div>
 
       <p className="text-xs text-on-surface-variant">
-        Report basis: rendered impressions and successful landing-page taps
-        recorded by the app, deduplicated per event. Figures are planning and
-        invoice inputs, not audited third-party measurement.
+        Report basis: every viewable impression and successful landing-page tap
+        recorded by the app, deduplicated per event id. Reach counts distinct
+        anonymous installs (hashed), so a campaign with no identified reach
+        shows “—” and frequency is blank. Figures are planning and invoice
+        inputs, not audited third-party measurement.
       </p>
 
       {audit.length > 0 ? (

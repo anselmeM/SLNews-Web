@@ -1,10 +1,16 @@
 /**
  * `/api/mobile/v1/sponsorships/events` — impression and tap counters.
  *
- * The app posts `{ id, type, eventId, token }` when a sold unit is viewed or
- * opened. The token is short-lived and signed by the ad read endpoint, so a
- * caller cannot blindly increment an arbitrary campaign id. The event id is a
- * client-generated dedupe key: retries and replays never double-count.
+ * The app posts `{ id, type, eventId, token, installId }` when a sold unit is
+ * viewed or opened. The token is short-lived and signed by the ad read endpoint,
+ * so a caller cannot blindly increment an arbitrary campaign id. The event id is
+ * a client-generated dedupe key: retries and replays never double-count, while
+ * every new impression/tap is a fresh event id.
+ *
+ * `installId` is a stable anonymous installation id. It is HMAC-hashed here
+ * before storage (`installIdHash`) and the raw value is never persisted; the
+ * hash feeds unique-reach and frequency reporting. It is optional so old app
+ * builds and token-less legacy events still count.
  *
  * Public and unauthenticated by design: no user data is attached. Rate limited
  * per IP. Unknown/expired/stopped campaigns answer 200 with counted:false so
@@ -15,7 +21,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
 import { checkDbRateLimit, getClientIp } from "@/lib/rate-limiter";
-import { verifyEventToken } from "@/lib/sponsorship-events";
+import { hashInstallId, isInstallId, verifyEventToken } from "@/lib/sponsorship-events";
 
 const RATE_LIMIT = { maxRequests: 120, windowMs: 60_000 };
 const EVENT_ID = /^[A-Za-z0-9_-]{8,80}$/;
@@ -101,6 +107,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     return json({ error: "Expected id and type impression|tap." }, 400);
   }
 
+  // The raw install id never leaves this function: validate it, hash it, and
+  // persist only the digest. Missing/null means legacy or privacy-limited app
+  // builds — those events count but contribute no identifiable reach.
+  let installIdHash: string | null = null;
+  if (typeof body.installId === "string" && body.installId.length > 0) {
+    if (!isInstallId(body.installId)) {
+      return json({ error: "Expected a valid installId." }, 400);
+    }
+    installIdHash = hashInstallId(body.installId);
+  } else if (body.installId !== undefined && body.installId !== null) {
+    return json({ error: "Expected a valid installId." }, 400);
+  }
+
   const hasToken =
     typeof body.token === "string" && body.token.trim().length > 0;
   if (hasToken) {
@@ -168,7 +187,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (existing) return false;
 
       await tx.sponsorshipEvent.create({
-        data: { id: eventId, sponsorshipId: id, type },
+        data: { id: eventId, sponsorshipId: id, type, installIdHash },
       });
       await tx.sponsorship.update({
         where: { id },

@@ -5,6 +5,7 @@ function form(overrides: Record<string, string> = {}): FormData {
   const data = new FormData();
   const values: Record<string, string> = {
     placement: "feed",
+    adCategory: "telecom",
     advertiser: "Orange SL",
     headline: "SCAN AND SAVE",
     body: "Every top-up this month",
@@ -22,7 +23,37 @@ describe("parseCampaignForm", () => {
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
       expect(parsed.value.placement).toBe("feed");
+      expect(parsed.value.adCategory).toBe("telecom");
       expect(parsed.value.brandHex).toBe("#0B6FD1");
+    }
+  });
+
+  it("accepts the news_stream placement with an allowed category", () => {
+    const parsed = parseCampaignForm(
+      form({ placement: "news_stream", adCategory: "health_services" })
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.placement).toBe("news_stream");
+      expect(parsed.value.adCategory).toBe("health_services");
+    }
+  });
+
+  it("requires an ad category", () => {
+    const parsed = parseCampaignForm(form({ adCategory: "" }));
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.errors.join(" ")).toMatch(/ad category is required/i);
+    }
+  });
+
+  it("rejects prohibited ad categories", () => {
+    for (const adCategory of ["gambling", "alcohol", "crypto", "political"]) {
+      const parsed = parseCampaignForm(form({ adCategory }));
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.errors.join(" ")).toMatch(/prohibited ad category/i);
+      }
     }
   });
 
@@ -78,6 +109,7 @@ describe("parseCampaignForm", () => {
   it("treats a blank image URL as optional", () => {
     const data = new FormData();
     data.set("placement", "feed");
+    data.set("adCategory", "retail");
     data.set("advertiser", "Orange SL");
     data.set("headline", "SCAN AND SAVE");
     data.set("body", "Every top-up this month");

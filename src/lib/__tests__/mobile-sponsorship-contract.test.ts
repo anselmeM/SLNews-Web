@@ -44,6 +44,22 @@ describe("mobile sponsorship contract", () => {
     expect(schema("Placement").enum).toContain(adFixture.placement);
   });
 
+  it("declares every placement, including the separate news surface", () => {
+    expect(schema("Placement").enum).toEqual([
+      "feed",
+      "news_stream",
+      "sports_stream",
+      "article_end",
+    ]);
+  });
+
+  it("requires an ad category on new campaigns", () => {
+    const input = schema("SponsorshipInput");
+    expect(input.required).toContain("adCategory");
+    const properties = input.properties as Json;
+    expect(properties.adCategory).toBeTruthy();
+  });
+
   it("maps a database row to the canonical AdUnit shape", () => {
     const row: SponsorshipRow = {
       id: adFixture.id as string,
@@ -81,6 +97,20 @@ describe("mobile sponsorship contract", () => {
       Object.keys(properties).sort()
     );
     expect(eventFixture.type).toBe("impression");
+    expect(eventFixture.installId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+    expect((properties.installId as Json).pattern).toBe(
+      "^[A-Za-z0-9_-]{16,128}$"
+    );
+  });
+
+  it("reports unique reach and frequency per campaign", () => {
+    const reportItem = schema("ReportItem");
+    expect(reportItem.required).toEqual(
+      expect.arrayContaining(["reach", "frequency"])
+    );
+    const properties = reportItem.properties as Json;
+    expect((properties.reach as Json).type).toEqual(["integer", "null"]);
+    expect((properties.frequency as Json).type).toEqual(["number", "null"]);
   });
 
   it("generates a deterministic Dart fixture from the contract", () => {

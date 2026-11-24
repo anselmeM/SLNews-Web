@@ -79,3 +79,36 @@ export function verifyEventToken(
 export function eventTokenTtlMs(): number {
   return TOKEN_TTL_MS;
 }
+
+/**
+ * The app's anonymous install id.
+ *
+ * The contract intends 32 lowercase hex characters, but the value is opaque to
+ * the server: any URL-safe token between 16 and 128 characters is accepted so a
+ * future app build can change the format without a backend release. The raw id
+ * must never be stored — `hashInstallId` turns it into an HMAC before the event
+ * row is written.
+ */
+const INSTALL_ID = /^[A-Za-z0-9_-]{16,128}$/;
+
+export function isInstallId(value: unknown): value is string {
+  return typeof value === "string" && INSTALL_ID.test(value);
+}
+
+/**
+ * Hashes an install id for reach reporting.
+ *
+ * Uses the same secret as the event token (dedicated secret first, admin key as
+ * fallback) with a prefix so the value cannot collide with a signed token. The
+ * digest is stable for as long as the secret is, which is what makes distinct
+ * installs countable per campaign; rotating the secret starts a new reach
+ * population (documented in docs/SPONSORSHIP-OPERATIONS.md). Returns null when
+ * no secret is configured: the event still counts, but its reach is unknown.
+ */
+export function hashInstallId(installId: string): string | null {
+  const key = secret();
+  if (!key) return null;
+  return createHmac("sha256", key)
+    .update(`install:${installId}`)
+    .digest("hex");
+}
