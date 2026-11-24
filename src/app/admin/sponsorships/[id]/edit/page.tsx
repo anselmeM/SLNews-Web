@@ -35,6 +35,7 @@ export default async function EditCampaignPage({
         campaignId={row.id}
         initial={{
           placement: row.placement,
+          adCategory: row.adCategory ?? "",
           advertiser: row.advertiser,
           headline: row.headline,
           body: row.body,

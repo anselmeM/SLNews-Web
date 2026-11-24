@@ -174,6 +174,20 @@ CREATE INDEX IF NOT EXISTS "Sponsorship_placement_active_startsAt_endsAt_idx"
 ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "impressions" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "taps" INTEGER NOT NULL DEFAULT 0;
 
+-- Sponsorship ad policy + anonymous reach (additive). The Prisma migration
+-- 20261123150000_sponsorship_reach_and_policy is the canonical DDL; these
+-- guarded copies keep a deploy that runs before `prisma migrate deploy` from
+-- reaching code that writes the new columns. They are no-ops afterwards.
+ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "adCategory" TEXT;
+DO $$
+BEGIN
+  IF to_regclass('"SponsorshipEvent"') IS NOT NULL THEN
+    ALTER TABLE "SponsorshipEvent" ADD COLUMN IF NOT EXISTS "installIdHash" TEXT;
+    CREATE INDEX IF NOT EXISTS "SponsorshipEvent_sponsorshipId_installIdHash_idx"
+      ON "SponsorshipEvent" ("sponsorshipId", "installIdHash");
+  END IF;
+END $$;
+
 -- Article.publisher (additive): the outlet a scraped story came from. The follow
 -- digest addresses newspapers by publisher id; host inference misses outlets
 -- whose feed host differs from the app's registry (Concord Times: the scraper

@@ -24,6 +24,11 @@ Flutter app and SLNews-Web tests.
 | `GET /api/mobile/v1/sponsorships/report` | `x-admin-key` | admin |
 | `PATCH/DELETE /api/mobile/v1/sponsorships/{id}` | `x-admin-key` | admin/API |
 
+Slot capacity is part of the contract: `feed` returns at most 2 units and
+`news_stream`, `sports_stream`, `article_end` return at most 1. The app renders
+exactly the returned list in order. `EventRequest.installId` is the app's stable
+anonymous install id; the server stores only an HMAC hash for reach reporting.
+
 The app must treat absent/null optional fields as empty. Unknown response fields
 are ignored for forward compatibility.
 ## Generating the Dart fixture

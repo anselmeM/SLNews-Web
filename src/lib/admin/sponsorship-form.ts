@@ -1,6 +1,10 @@
 /** Validation shared by the console form and its tests. */
 
 import {
+  validateAdCategory,
+  type AdCategoryValue,
+} from "@/lib/sponsorship-policy";
+import {
   SPONSORSHIP_LIMITS,
   SPONSORSHIP_PLACEMENTS,
   isApprovedCreativeUrl,
@@ -11,6 +15,7 @@ export const PLACEMENTS = SPONSORSHIP_PLACEMENTS;
 
 export type CampaignInput = {
   placement: SponsorshipPlacementValue;
+  adCategory: AdCategoryValue;
   advertiser: string;
   headline: string;
   body: string;
@@ -77,6 +82,7 @@ function validHttpUrl(raw: string): boolean {
 export function parseCampaignForm(data: FormData): ParseResult {
   const errors: string[] = [];
   const placement = str(data, "placement");
+  const adCategory = validateAdCategory(str(data, "adCategory"));
   const advertiser = str(data, "advertiser");
   const headline = str(data, "headline");
   const body = str(data, "body");
@@ -99,6 +105,7 @@ export function parseCampaignForm(data: FormData): ParseResult {
   if (!(PLACEMENTS as readonly string[]).includes(placement)) {
     errors.push("Choose a valid placement.");
   }
+  if (!adCategory.ok) errors.push(adCategory.error);
   if (!advertiser || advertiser.length > SPONSORSHIP_LIMITS.advertiser) {
     errors.push(
       `Advertiser is required (max ${SPONSORSHIP_LIMITS.advertiser} chars).`
@@ -173,6 +180,7 @@ export function parseCampaignForm(data: FormData): ParseResult {
     ok: true,
     value: {
       placement: placement as SponsorshipPlacementValue,
+      adCategory: adCategory.ok ? adCategory.value : "other",
       advertiser,
       headline,
       body,

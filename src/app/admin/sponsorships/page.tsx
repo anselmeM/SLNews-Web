@@ -192,6 +192,7 @@ export default async function SponsorshipsAdminPage({
               <tr>
                 <th className="p-2">Status</th>
                 <th className="p-2">Advertiser</th>
+                <th className="p-2">Category</th>
                 <th className="p-2">Placement</th>
                 <th className="p-2">Headline</th>
                 <th className="p-2">Window</th>
@@ -216,6 +217,7 @@ export default async function SponsorshipsAdminPage({
                       </span>
                     </td>
                     <td className="p-2">{row.advertiser}</td>
+                    <td className="p-2">{row.adCategory ?? "—"}</td>
                     <td className="p-2">{row.placement}</td>
                     <td className="p-2">{row.headline}</td>
                     <td className="p-2">
@@ -308,9 +310,9 @@ export default async function SponsorshipsAdminPage({
       )}
 
       <p className="text-xs text-on-surface-variant">
-        Impressions are rendered-appearances, not verified viewable impressions.
-        Taps count successful sponsor landing-page opens. See the report page
-        for the date-bounded invoice view.
+        Impressions count every viewable card rendering the app reports, not once
+        per session. Taps count successful sponsor landing-page opens. See the
+        report page for date-bounded reach, frequency and the invoice view.
       </p>
     </main>
   );

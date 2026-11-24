@@ -5,7 +5,10 @@ import { GET as report } from "../report/route";
 import { db } from "@/lib/db";
 import { reportError } from "@/lib/error-reporting";
 import { checkDbRateLimit } from "@/lib/rate-limiter";
-import { createEventToken } from "@/lib/sponsorship-events";
+import {
+  createEventToken,
+  hashInstallId,
+} from "@/lib/sponsorship-events";
 
 const campaign = {
   id: "sp_1",
@@ -40,6 +43,7 @@ vi.mock("@/lib/db", () => ({
     },
     sponsorshipEvent: { create: vi.fn() },
     adminAuditLog: { create: vi.fn() },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   },
 }));
@@ -86,6 +90,7 @@ describe("sponsorship measurement", () => {
     vi.mocked(db.sponsorship.findUnique).mockResolvedValue(campaign as never);
     vi.mocked(db.sponsorship.update).mockResolvedValue({ id: "sp_1" } as never);
     vi.mocked(db.sponsorship.findMany).mockResolvedValue([] as never);
+    vi.mocked(db.$queryRaw).mockResolvedValue([] as never);
     vi.mocked(tx.sponsorshipEvent.findUnique).mockResolvedValue(null);
     vi.mocked(tx.sponsorshipEvent.create).mockResolvedValue({} as never);
     vi.mocked(tx.sponsorship.findUnique).mockResolvedValue(campaign as never);
@@ -115,6 +120,104 @@ describe("sponsorship measurement", () => {
       data: { impressions: { increment: 1 } },
     });
     expect(tx.sponsorshipDailyMetric.upsert).toHaveBeenCalled();
+    // Legacy event without an install id: counted, but no identifiable reach.
+    expect(tx.sponsorshipEvent.create).toHaveBeenCalledWith({
+      data: {
+        id: "ev_1234567890",
+        sponsorshipId: "sp_1",
+        type: "impression",
+        installIdHash: null,
+      },
+    });
+  });
+
+  it("stores only the HMAC hash of the install id", async () => {
+    const token = createEventToken("sp_1")!;
+    const installId = "0123456789abcdef0123456789abcdef";
+    const response = await events(
+      post({
+        id: "sp_1",
+        type: "impression",
+        eventId: "ev_install_hash_0001",
+        token,
+        installId,
+      })
+    );
+    expect(await response.json()).toEqual({ ok: true, counted: true });
+    const expected = hashInstallId(installId);
+    expect(expected).toMatch(/^[0-9a-f]{64}$/);
+    expect(tx.sponsorshipEvent.create).toHaveBeenCalledWith({
+      data: {
+        id: "ev_install_hash_0001",
+        sponsorshipId: "sp_1",
+        type: "impression",
+        installIdHash: expected,
+      },
+    });
+    // The raw install id must never reach storage.
+    const stored = JSON.stringify(
+      vi.mocked(tx.sponsorshipEvent.create).mock.calls
+    );
+    expect(stored).not.toContain(installId);
+  });
+
+  it("accepts a legacy token-less event that carries an install id", async () => {
+    const installId = "fedcba9876543210fedcba9876543210";
+    const response = await events(
+      post({ id: "sp_1", type: "tap", installId })
+    );
+    expect(await response.json()).toEqual({ ok: true, counted: true });
+    expect(tx.sponsorshipEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          installIdHash: hashInstallId(installId),
+        }),
+      })
+    );
+  });
+
+  it("accepts install ids across the documented 16-128 character range", async () => {
+    const token = createEventToken("sp_1")!;
+    for (const [index, installId] of [
+      "a".repeat(16),
+      "b".repeat(64),
+      "c".repeat(128),
+      "Ab_C-1234567890aB_c-1234567890",
+    ].entries()) {
+      const response = await events(
+        post({
+          id: "sp_1",
+          type: "impression",
+          eventId: `ev_install_range_${index}`,
+          token,
+          installId,
+        })
+      );
+      expect(await response.json()).toEqual({ ok: true, counted: true });
+    }
+  });
+
+  it("rejects a malformed install id", async () => {
+    const token = createEventToken("sp_1")!;
+    for (const installId of [
+      "short",
+      "has spaces in the value",
+      "z".repeat(129),
+      "0123456789abcdef0123456789abcde!", // not URL-safe
+    ]) {
+      const response = await events(
+        post({
+          id: "sp_1",
+          type: "impression",
+          eventId: "ev_bad_install",
+          token,
+          installId,
+        })
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/installId/i);
+    }
+    expect(tx.sponsorship.update).not.toHaveBeenCalled();
   });
 
   afterEach(() => {
@@ -237,7 +340,8 @@ describe("sponsorship measurement", () => {
     vi.mocked(db.sponsorship.findMany).mockResolvedValue([
       {
         id: "sp_1",
-        placement: "feed",
+        placement: "news_stream",
+        adCategory: "telecom",
         advertiser: "Orange",
         headline: "SCAN",
         active: true,
@@ -248,6 +352,9 @@ describe("sponsorship measurement", () => {
           { day: new Date("2026-11-02T00:00:00Z"), impressions: 50, taps: 1 },
         ],
       },
+    ] as never);
+    vi.mocked(db.$queryRaw).mockResolvedValue([
+      { sponsorshipId: "sp_1", reach: 3 },
     ] as never);
     expect((await report(adminRequest("GET", "wrong"))).status).toBe(401);
     const response = await report(
@@ -263,6 +370,38 @@ describe("sponsorship measurement", () => {
     expect(body.items[0].taps).toBe(3);
     expect(body.items[0].ctr).toBeCloseTo(0.02, 4);
     expect(body.items[0].daily).toHaveLength(2);
+    expect(body.items[0].placement).toBe("news_stream");
+    expect(body.items[0].adCategory).toBe("telecom");
+    expect(body.items[0].reach).toBe(3);
+    expect(body.items[0].frequency).toBeCloseTo(50, 4);
+  });
+
+  it("reports null reach and frequency when no install is identifiable", async () => {
+    vi.mocked(db.sponsorship.findMany).mockResolvedValue([
+      {
+        id: "sp_1",
+        placement: "feed",
+        adCategory: null,
+        advertiser: "Orange",
+        headline: "SCAN",
+        active: true,
+        startsAt: campaign.startsAt,
+        endsAt: campaign.endsAt,
+        dailyMetrics: [
+          { day: new Date("2026-11-01T00:00:00Z"), impressions: 25, taps: 0 },
+        ],
+      },
+    ] as never);
+    const response = await report(
+      adminRequest(
+        "GET",
+        "secret",
+        "http://localhost/api/mobile/v1/sponsorships/report?from=2026-11-01&to=2026-11-01"
+      )
+    );
+    const body = await response.json();
+    expect(body.items[0].reach).toBeNull();
+    expect(body.items[0].frequency).toBeNull();
   });
 
   it("reports a storage failure while keeping the reader response safe", async () => {
