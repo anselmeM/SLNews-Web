@@ -167,8 +167,11 @@ CREATE TABLE IF NOT EXISTS "Sponsorship" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS "Sponsorship_placement_active_startsAt_endsAt_idx"
-  ON "Sponsorship" ("placement", "active", "startsAt", "endsAt");
+-- The old narrower index was superseded by the schema's four-column index.
+-- The deploy guard used to recreate it on every deploy after the drop migration,
+-- causing permanent Prisma drift; drop it instead. The canonical index is
+-- created by the Prisma migration chain.
+DROP INDEX IF EXISTS "Sponsorship_placement_active_startsAt_endsAt_idx";
 
 -- Sponsorship counters (additive; measured by the public event endpoint).
 ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "impressions" INTEGER NOT NULL DEFAULT 0;
