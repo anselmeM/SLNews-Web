@@ -12,8 +12,13 @@
 -- No data is rewritten and no column is dropped, so this migration is safe to
 -- apply while the previous deployment is still serving.
 
-ALTER TABLE "Sponsorship" ADD COLUMN "adCategory" TEXT;
-ALTER TABLE "SponsorshipEvent" ADD COLUMN "installIdHash" TEXT;
+ALTER TABLE "Sponsorship" ADD COLUMN IF NOT EXISTS "adCategory" TEXT;
+ALTER TABLE "SponsorshipEvent" ADD COLUMN IF NOT EXISTS "installIdHash" TEXT;
 
-CREATE INDEX "SponsorshipEvent_sponsorshipId_installIdHash_idx"
+CREATE INDEX IF NOT EXISTS "SponsorshipEvent_sponsorshipId_installIdHash_idx"
   ON "SponsorshipEvent" ("sponsorshipId", "installIdHash");
+
+-- The deploy guard in docs/mobile-sync-migration.sql used to recreate this
+-- pre-migration index after the drop migration ran, leaving permanent schema
+-- drift. Remove it here as well so migrate status and diff are clean.
+DROP INDEX IF EXISTS "Sponsorship_placement_active_startsAt_endsAt_idx";
